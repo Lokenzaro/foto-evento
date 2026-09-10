@@ -82,14 +82,15 @@
 
     <div class="card">
       <table>
-        <thead><tr><th>Evento</th><th>Data</th><th>Foto</th><th>Stato</th><th>Qualità</th><th>QR</th><th>Azioni</th></tr></thead>
+        <thead><tr><th>Evento</th><th>Data</th><th>Media</th><th>Stato</th><th>Qualità foto</th><th>QR</th><th>Azioni</th></tr></thead>
         <tbody id="righe"></tbody>
       </table>
       <p class="muted">💡 Clicca su un QR per ingrandirlo • La qualità si applica alle foto inviate da quel momento in poi.</p>
-      <p class="muted">☁️ Ogni foto e un riepilogo del database vengono copiati automaticamente su MEGA. Se il server perde i dati, premi «Ripristina da MEGA».</p>
+      <p class="muted">🎨 = carica l'immagine di sfondo della pagina invitati (🌄 = già impostata; ricaricandola la sostituisci).</p>
+      <p class="muted">☁️ Ogni file e un riepilogo del database vengono copiati automaticamente su MEGA. Se il server perde i dati, premi «Ripristina da MEGA».</p>
     </div>
   </main>
-  <p class="tag-versione">pannello admin · v4</p>
+  <p class="tag-versione">pannello admin · v5</p>
 </div>
 
 <div id="lightbox" onclick="this.style.display='none'"
@@ -98,6 +99,8 @@
   <img id="bigqr" style="max-width:80vmin; background:#fff; padding:14px; border-radius:14px;">
   <p style="color:#fff">Tocca per chiudere</p>
 </div>
+
+<input type="file" id="sfondo-file" accept="image/*" hidden>
 
 <script>
 const $ = s => document.querySelector(s);
@@ -115,7 +118,7 @@ async function carica() {
   const eventi = await (await fetch('/api/eventi')).json();
   $('#righe').innerHTML = eventi.map(e => `
     <tr>
-      <td><strong>${esc(e.nome)}</strong><br><span class="muted">/e/${e.token}</span></td>
+      <td><strong>${esc(e.nome)}</strong>${e.sfondo ? ' 🌄' : ''}<br><span class="muted">/e/${e.token}</span></td>
       <td>${e.data_evento || '—'}</td>
       <td><strong>${e.num_foto}</strong></td>
       <td><span class="badge ${e.attivo ? 'on' : 'off'}">${e.attivo ? 'Attivo' : 'Chiuso'}</span></td>
@@ -128,11 +131,12 @@ async function carica() {
       </td>
       <td><img class="qr" src="/qr/${e.token}" onclick="mostraQR('${e.token}')"></td>
       <td>
-        <button onclick="copia('${e.link}')">📋</button>
-        <button onclick="scaricaQR('${e.token}')">⬇️</button>
-        <button class="teal" onclick="galleria('${e.token}')">🖼️</button>
-        <button class="gray" onclick="toggle(${e.id})">${e.attivo ? '🔒' : '🔓'}</button>
-        <button class="danger" onclick="elimina(${e.id})">🗑️</button>
+        <button title="Link" onclick="copia('${e.link}')">📋</button>
+        <button title="Scarica QR" onclick="scaricaQR('${e.token}')">⬇️</button>
+        <button class="teal" title="Galleria" onclick="galleria('${e.token}')">🖼️</button>
+        <button class="gray" title="Sfondo pagina invitati" onclick="sfondo(${e.id})">🎨</button>
+        <button class="gray" title="Chiudi/Apri" onclick="toggle(${e.id})">${e.attivo ? '🔒' : '🔓'}</button>
+        <button class="danger" title="Elimina" onclick="elimina(${e.id})">🗑️</button>
       </td>
     </tr>`).join('');
 }
@@ -141,6 +145,24 @@ function mostraQR(t) { $('#bigqr').src = `/qr/${t}`; $('#lightbox').style.displa
 function scaricaQR(t) { const a = document.createElement('a'); a.href = `/qr/${t}`; a.download = `qr-${t}.png`; a.click(); }
 function copia(l) { navigator.clipboard.writeText(l); alert('Link copiato:\n' + l); }
 function galleria(t) { window.open('/galleria/' + t, '_blank'); }
+
+// --- SFONDO ---
+let sfondoId = null;
+function sfondo(id) {
+  sfondoId = id;
+  document.getElementById('sfondo-file').click();
+}
+document.getElementById('sfondo-file').addEventListener('change', async e => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (!f || !sfondoId) return;
+  const fd = new FormData();
+  fd.append('sfondo', f);
+  const r = await fetch(`/admin/sfondo/${sfondoId}`, { method: 'POST', body: fd });
+  const d = await r.json();
+  if (!r.ok) return alert(d.errore || 'Errore caricamento sfondo');
+  carica();
+});
 
 async function crea() {
   const r = await fetch('/api/eventi', { method:'POST',
@@ -159,14 +181,14 @@ async function cambiaQualita(id, qualita) {
 
 async function toggle(id) { await fetch(`/api/eventi/${id}/toggle`, { method:'POST' }); carica(); }
 async function elimina(id) {
-  if (!confirm('Eliminare definitivamente questo evento? Verranno cancellate anche le sue foto (anche dal backup MEGA).')) return;
+  if (!confirm('Eliminare definitivamente questo evento? Verranno cancellate anche le sue foto e i suoi video (anche dal backup MEGA).')) return;
   await fetch(`/api/eventi/${id}`, { method:'DELETE' }); carica();
 }
 
 // --- RIPRISTINO DA MEGA ---
 let timerRipristino = null;
 async function avviaRipristino() {
-  if (!confirm('Ripristinare eventi e foto dal backup MEGA?\n\n' +
+  if (!confirm('Ripristinare eventi, foto e video dal backup MEGA?\n\n' +
       'Operazione SICURA: ciò che esiste già sul server non viene toccato, ' +
       'vengono solo riaggiunti gli elementi mancanti.')) return;
   const r = await fetch('/admin/ripristino', { method: 'POST' });
@@ -181,10 +203,7 @@ async function statoRipristino() {
   try {
     const s = await (await fetch('/admin/stato-ripristino')).json();
     $('#msg-ripristino').textContent = s.messaggio || '';
-    if (!s.in_corso) {
-      clearInterval(timerRipristino);
-      carica();
-    }
+    if (!s.in_corso) { clearInterval(timerRipristino); carica(); }
   } catch (e) {}
 }
 

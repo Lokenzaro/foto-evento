@@ -20,11 +20,17 @@
   #conteggio { text-align: center; color: #94a3b8; margin: .4rem 0 .8rem; }
   #griglia { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
     gap: 6px; padding: 0 6px 24px; max-width: 1200px; margin: 0 auto; }
-  #griglia img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 10px;
-    cursor: zoom-in; background: rgba(255,255,255,.06); }
+  .cella { position: relative; }
+  .cella img, .cella video { width: 100%; aspect-ratio: 1; object-fit: cover;
+    border-radius: 10px; cursor: zoom-in; background: rgba(255,255,255,.06); display: block; }
+  .cella .play { position: absolute; inset: 0; display: flex; align-items: center;
+    justify-content: center; font-size: 2.2rem; color: #fff; pointer-events: none;
+    text-shadow: 0 2px 10px #000; }
+  .cella .badge-v { position: absolute; top: 6px; left: 6px; font-size: .75rem;
+    background: rgba(0,0,0,.6); padding: .1rem .45rem; border-radius: 99px; pointer-events: none; }
   #lightbox { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.95);
     z-index: 50; flex-direction: column; align-items: center; justify-content: center; }
-  #lightbox img { max-width: 100%; max-height: 82vh; object-fit: contain; }
+  #lightbox img, #lightbox video { max-width: 100%; max-height: 82vh; object-fit: contain; }
   #info { margin-top: .6rem; color: #ccc; font-size: .95rem; }
   .nav { position: fixed; top: 50%; transform: translateY(-50%); font-size: 2.4rem;
     background: none; border: none; color: #fff; cursor: pointer; padding: 1rem; z-index: 51; }
@@ -41,12 +47,13 @@
 </header>
 <p id="conteggio"></p>
 <div id="griglia"></div>
-<p class="tag-versione">galleria · v4</p>
+<p class="tag-versione">galleria · v5</p>
 
 <div id="lightbox" onclick="chiudi()">
   <button id="chiudi">✕</button>
   <button class="nav" id="prec" onclick="event.stopPropagation(); naviga(-1)">‹</button>
   <img id="grande" src="" onclick="event.stopPropagation()">
+  <video id="grande-video" controls playsinline style="display:none" onclick="event.stopPropagation()"></video>
   <div id="info" onclick="event.stopPropagation()"></div>
   <button class="nav" id="succ" onclick="event.stopPropagation(); naviga(1)">›</button>
 </div>
@@ -63,7 +70,7 @@ async function aggiorna() {
     foto = await (await fetch('/api/foto/' + token)).json();
     if (foto.length !== ultimoNumero) { ultimoNumero = foto.length; disegna(); }
     document.getElementById('conteggio').textContent =
-      foto.length ? `${foto.length} foto condivise 🎉` : 'Nessuna foto ancora… aspetta i primi scatti!';
+      foto.length ? `${foto.length} foto e video condivisi 🎉` : 'Nessun contenuto ancora… aspetta i primi scatti!';
   } catch (e) {}
 }
 
@@ -71,22 +78,47 @@ function disegna() {
   const g = document.getElementById('griglia');
   g.innerHTML = '';
   foto.forEach((f, i) => {
-    const img = document.createElement('img');
-    img.src = f.url;
-    img.loading = 'lazy';
-    img.onclick = () => apri(i);
-    g.append(img);
+    const cella = document.createElement('div');
+    cella.className = 'cella';
+    if (f.tipo === 'video') {
+      const v = document.createElement('video');
+      v.src = f.url; v.muted = true; v.playsInline = true; v.preload = 'metadata';
+      const play = document.createElement('span'); play.className = 'play'; play.textContent = '▶';
+      const b = document.createElement('span'); b.className = 'badge-v'; b.textContent = '🎬 video';
+      cella.append(v, play, b);
+    } else {
+      const img = document.createElement('img');
+      img.src = f.url; img.loading = 'lazy';
+      cella.append(img);
+    }
+    cella.onclick = () => apri(i);
+    g.append(cella);
   });
 }
 
 function apri(i) { indice = i; mostra(); document.getElementById('lightbox').style.display = 'flex'; }
-function chiudi() { document.getElementById('lightbox').style.display = 'none'; }
+function chiudi() {
+  document.getElementById('grande-video').pause();
+  document.getElementById('lightbox').style.display = 'none';
+}
 function mostra() {
   const f = foto[indice];
-  document.getElementById('grande').src = f.url;
+  const im = document.getElementById('grande');
+  const v = document.getElementById('grande-video');
+  v.pause();
+  if (f.tipo === 'video') {
+    im.style.display = 'none';
+    v.style.display = 'block';
+    if (v.getAttribute('src') !== f.url) v.src = f.url;
+  } else {
+    v.style.display = 'none';
+    im.style.display = 'block';
+    im.src = f.url;
+  }
   let quando = '';
   try { quando = new Date(f.caricata_il.replace(' ', 'T') + 'Z').toLocaleString('it-IT'); } catch (e) {}
-  document.getElementById('info').textContent = `📸 ${f.invitato || 'Invitato'} • ${quando}`;
+  document.getElementById('info').textContent =
+    `${f.tipo === 'video' ? '🎬' : '📸'} ${f.invitato || 'Invitato'} • ${quando}`;
 }
 function naviga(d) {
   if (!foto.length) return;

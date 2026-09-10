@@ -1,6 +1,6 @@
 // ============================================================
-//  SERVER - App foto evento con QR code — v4
-//  Admin + invitati + galleria live + backup/ripristino MEGA
+//  SERVER - App foto/video evento con QR code — v5
+//  Admin + invitati + galleria live + sfondo + backup MEGA
 // ============================================================
 
 const express = require('express');
@@ -27,6 +27,7 @@ const URL_BASE = process.env.URL_BASE || `http://${rilevaIPLocale()}:3000`;
 const PASSWORD_ADMIN = process.env.ADMIN_PASSWORD || 'admin123';
 const DATA_DIR = process.env.DATA_DIR || '.';
 const CARTELLA_FOTO = path.join(DATA_DIR, 'uploads');
+const CARTELLA_SFONDI = path.join(DATA_DIR, 'sfondi');
 
 // ---------- DATABASE ----------
 const db = new Database(path.join(DATA_DIR, 'database.db'));
@@ -48,11 +49,33 @@ db.exec(`
   );
 `);
 try { db.exec("ALTER TABLE eventi ADD COLUMN qualita TEXT DEFAULT 'standard'"); } catch (e) {}
+try { db.exec("ALTER TABLE eventi ADD COLUMN sfondo TEXT"); } catch (e) {}
+try { db.exec("ALTER TABLE foto ADD COLUMN tipo TEXT DEFAULT 'foto'"); } catch (e) {}
 
 fs.mkdirSync(CARTELLA_FOTO, { recursive: true });
-const caricamento = multer({ dest: CARTELLA_FOTO, limits: { fileSize: 20 * 1024 * 1024 } });
+fs.mkdirSync(CARTELLA_SFONDI, { recursive: true });
 
-// ---------- CONNESSIONE MEGA (opzionale) ----------
+// fino a 100 MB: necessario per i video
+const caricamento = multer({ dest: CARTELLA_FOTO, limits: { fileSize: 100 * 1024 * 1024 } });
+const caricamentoSfondo = multer({
+  dest: CARTELLA_SFONDI,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) cb(null, true);
+    else cb(new Error('Solo immagini per lo sfondo'));
+  }
+});
+
+function estensioneDa(mime) {
+  const m = {
+    'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
+    'video/webm': 'webm', 'video/mp4': 'mp4', 'video/quicktime': 'mov',
+    'video/x-m4v': 'm4v', 'video/x-matroska': 'mkv'
+  };
+  return m[(mime || '').split(';')[0].trim()] || '';
+}
+
+// ---------- MEGA (opzionale) ----------
 let megaStorage = null;
 let megaPronto = false;
 if (process.env.MEGA_EMAIL && process.env.MEGA_PASSWORD) {
@@ -79,14 +102,13 @@ function backupMega(percorsoFile, nomeSuMega) {
   } catch (e) { console.error('☁️ Backup MEGA errore:', e.message); }
 }
 
-// ---------- SNAPSHOT DATABASE SU MEGA (con debounce 15 s) ----------
+// ---------- SNAPSHOT DB SU MEGA (debounce 15 s) ----------
 let snapshotTimer = null;
 function programmaSnapshot(ritardo = 15000) {
   if (!megaStorage) return;
   clearTimeout(snapshotTimer);
   snapshotTimer = setTimeout(eseguiSnapshot, ritardo);
 }
-
 function eseguiSnapshot() {
   if (!megaStorage || !megaPronto) return;
   try {
@@ -123,7 +145,7 @@ app.post('/admin/login', (req, res) => {
 });
 app.post('/admin/logout', (req, res) => req.session.destroy(() => res.json({ ok: true })));
 
-// ---------- API EVENTI (solo admin) ----------
+// ---------- API EVENTI (admin) ----------
 app.get('/api/eventi', soloAdmin, (req, res) => {
   const eventi = db.prepare(`
     SELECT e.*, COUNT(f.id) AS num_foto
@@ -138,7 +160,7 @@ app.post('/api/eventi', soloAdmin, (req, res) => {
   const LIVELLI = ['risparmio', 'standard', 'massima'];
   if (nome.length < 2) return res.status(400).json({ errore: 'Inserisci un nome valido' });
   const qualita = LIVELLI.includes(req.body.qualita) ? req.body.qualita : 'standard';
-  const token = crypto.randomBytes(6).toString('base64url'); // sempre 8 caratteri
+  const token = crypto.randomBytes(6).toString('base64url'); // 8 caratteri
   db.prepare('INSERT INTO eventi (token, nome, data_evento, qualita) VALUES (?, ?, ?, ?)')
     .run(token, nome, req.body.data_evento || null, qualita);
   programmaSnapshot();
@@ -178,25 +200,46 @@ app.delete('/api/eventi/:id', soloAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- SFONDO (admin) ----------
+app.post('/admin/sfondo/:id', soloAdmin, caricamentoSfondo.single('sfondo'), (req, res) => {
+  const ev = db.prepare('SELECT id, sfondo FROM eventi WHERE id = ?').get(req.params.id);
+  if (!ev) return res.status(404).json({ errore: 'Evento non trovato' });
+  if (!req.file) return res.status(400).json({ errore: 'File mancante' });
+  let ext = estensioneDa(req.file.mimetype);
+  if (!ext) ext = 'jpg';
+  const nome = `sf-${Date.now()}-${crypto.randomBytes(3).toString('hex')}.${ext}`;
+  fs.renameSync(req.file.path, path.join(CARTELLA_SFONDI, nome));
+  if (ev.sfondo) { try { fs.unlinkSync(path.join(CARTELLA_SFONDI, ev.sfondo)); } catch (e) {} }
+  db.prepare('UPDATE eventi SET sfondo = ? WHERE id = ?').run(nome, req.params.id);
+  programmaSnapshot();
+  res.json({ ok: true, sfondo: '/sfondo/' + nome });
+});
+
 // ---------- API PUBBLICHE (sola lettura) ----------
 app.get('/api/evento/:token', (req, res) => {
-  const ev = db.prepare('SELECT nome, qualita FROM eventi WHERE token = ? AND attivo = 1').get(req.params.token);
+  const ev = db.prepare('SELECT nome, qualita, sfondo FROM eventi WHERE token = ? AND attivo = 1')
+    .get(req.params.token);
   if (!ev) return res.status(404).json({ errore: 'Evento non trovato o chiuso' });
-  res.json(ev);
+  res.json({ nome: ev.nome, qualita: ev.qualita, sfondo: ev.sfondo ? '/sfondo/' + ev.sfondo : null });
 });
 
 app.get('/api/foto/:token', (req, res) => {
   const ev = db.prepare('SELECT id FROM eventi WHERE token = ?').get(req.params.token);
   if (!ev) return res.status(404).json({ errore: 'Evento non trovato' });
   const foto = db.prepare(
-    'SELECT filename, invitato, caricata_il FROM foto WHERE evento_token = ? ORDER BY id DESC'
+    'SELECT filename, invitato, caricata_il, tipo FROM foto WHERE evento_token = ? ORDER BY id DESC'
   ).all(req.params.token);
-  res.json(foto.map(f => ({ ...f, url: '/foto/' + f.filename })));
+  res.json(foto.map(f => ({
+    ...f,
+    tipo: f.tipo || 'foto',
+    url: '/foto/' + f.filename
+  })));
 });
 
-app.use('/foto', express.static(CARTELLA_FOTO)); // sola lettura via web
+app.use('/foto', express.static(CARTELLA_FOTO));     // sola lettura (supporta Range: video ok)
+app.use('/sfondo', express.static(CARTELLA_SFONDI)); // sola lettura
 
-// ---------- QR CODE ----------
+// ---------- QR ----------
 app.get('/qr/:token', soloAdmin, async (req, res) => {
   const ev = db.prepare('SELECT token FROM eventi WHERE token = ?').get(req.params.token);
   if (!ev) return res.status(404).send('Non trovato');
@@ -217,18 +260,27 @@ app.get('/galleria/:token', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'galleria.html'));
 });
 
-// ---------- CARICAMENTO FOTO ----------
+// ---------- CARICAMENTO FOTO/VIDEO ----------
 app.post('/upload', caricamento.single('foto'), (req, res) => {
   const ev = db.prepare('SELECT token FROM eventi WHERE token = ? AND attivo = 1').get(req.body.token);
   if (!ev) return res.status(403).json({ errore: 'Evento non valido o chiuso' });
-  db.prepare('INSERT INTO foto (evento_token, filename, invitato) VALUES (?, ?, ?)')
-    .run(ev.token, req.file.filename, (req.body.nome || 'Invitato').slice(0, 50));
-  backupMega(req.file.path, `${ev.token}_${req.file.filename}.jpg`);
+
+  // assegna l'estensione giusta al file (multer la omette)
+  let ext = estensioneDa(req.file.mimetype);
+  if (!ext) ext = path.extname(req.file.originalname || '').toLowerCase().replace('.', '');
+  const nuovoNome = ext ? `${req.file.filename}.${ext}` : req.file.filename;
+  if (ext) fs.renameSync(req.file.path, path.join(CARTELLA_FOTO, nuovoNome));
+
+  const tipo = req.file.mimetype.startsWith('video') ? 'video' : 'foto';
+  db.prepare('INSERT INTO foto (evento_token, filename, invitato, tipo) VALUES (?, ?, ?, ?)')
+    .run(ev.token, nuovoNome, (req.body.nome || 'Invitato').slice(0, 50), tipo);
+
+  backupMega(path.join(CARTELLA_FOTO, nuovoNome), `${ev.token}_${nuovoNome}`);
   programmaSnapshot();
   res.json({ ok: true });
 });
 
-// ---------- RIPRISTINO DAL BACKUP MEGA ----------
+// ---------- RIPRISTINO DA MEGA ----------
 const ripristino = { in_corso: false, messaggio: 'Mai avviato', eventi: 0, foto: 0, errori: 0, totale: 0 };
 
 app.post('/admin/ripristino', soloAdmin, (req, res) => {
@@ -250,27 +302,28 @@ function eseguiRipristino() {
     const tutti = Object.values(megaStorage.files || {}).filter(f => !f.isDirectory && f.name);
     const snapshots = tutti
       .filter(f => f.name.startsWith('db-snapshot-') && f.name.endsWith('.json'))
-      .sort((a, b) => a.name.localeCompare(b.name)); // il più recente è l'ultimo
+      .sort((a, b) => a.name.localeCompare(b.name));
 
     if (snapshots.length) {
       ripristino.messaggio = 'Scarico lo snapshot del database…';
       snapshots[snapshots.length - 1].downloadBuffer((err, buffer) => {
         if (err) {
           ripristino.errori++;
-          ripristino.messaggio = 'Snapshot illeggibile (' + err.message + '), recupero solo le foto…';
+          ripristino.messaggio = 'Snapshot illeggibile (' + err.message + '), recupero solo i file…';
         } else {
           try {
             const dati = JSON.parse(buffer.toString('utf8'));
             const insEvento = db.prepare(`INSERT INTO eventi
-              (token, nome, data_evento, qualita, attivo, creato_il) VALUES (?, ?, ?, ?, ?, ?)`);
+              (token, nome, data_evento, qualita, attivo, creato_il, sfondo) VALUES (?, ?, ?, ?, ?, ?, ?)`);
             const insFoto = db.prepare(`INSERT INTO foto
-              (evento_token, filename, invitato, caricata_il) VALUES (?, ?, ?, ?)`);
+              (evento_token, filename, invitato, caricata_il, tipo) VALUES (?, ?, ?, ?, ?)`);
             db.transaction(() => {
               for (const ev of (dati.eventi || [])) {
                 const esiste = db.prepare('SELECT id FROM eventi WHERE token = ?').get(ev.token);
                 if (!esiste) {
                   insEvento.run(ev.token, ev.nome, ev.data_evento || null,
-                    ev.qualita || 'standard', ev.attivo === undefined ? 1 : ev.attivo, ev.creato_il || null);
+                    ev.qualita || 'standard', ev.attivo === undefined ? 1 : ev.attivo,
+                    ev.creato_il || null, ev.sfondo || null);
                   ripristino.eventi++;
                 }
               }
@@ -278,20 +331,21 @@ function eseguiRipristino() {
                 const esiste = db.prepare('SELECT id FROM foto WHERE evento_token = ? AND filename = ?')
                   .get(f.evento_token, f.filename);
                 if (!esiste) {
-                  insFoto.run(f.evento_token, f.filename, f.invitato || 'Invitato', f.caricata_il || null);
+                  insFoto.run(f.evento_token, f.filename, f.invitato || 'Invitato',
+                    f.caricata_il || null, f.tipo || 'foto');
                   ripristino.foto++;
                 }
               }
             })();
           } catch (e) {
             ripristino.errori++;
-            ripristino.messaggio = 'Snapshot corrotto (' + e.message + '), recupero solo le foto…';
+            ripristino.messaggio = 'Snapshot corrotto (' + e.message + '), recupero solo i file…';
           }
         }
-        scaricaFoto(tutti);
+        scaricaFile(tutti);
       });
     } else {
-      scaricaFoto(tutti);
+      scaricaFile(tutti);
     }
   } catch (e) {
     ripristino.in_corso = false;
@@ -299,51 +353,66 @@ function eseguiRipristino() {
   }
 }
 
-function scaricaFoto(filesMega) {
-  const fotoMega = filesMega.filter(f =>
-    !f.name.startsWith('db-snapshot-') && /^[A-Za-z0-9_-]{8}_.+\.jpg$/.test(f.name)
-  );
-  ripristino.totale = fotoMega.length;
+function scaricaFile(filesMega) {
+  const RE = /^[A-Za-z0-9_-]{8}_.+\.(jpg|jpeg|png|webp|gif|webm|mp4|mov|m4v|mkv)$/i;
+  const lista = [
+    ...filesMega.filter(f => RE.test(f.name)).map(f => ({ f, tipo: 'media' })),
+    ...filesMega.filter(f => f.name.startsWith('sfondo_')).map(f => ({ f, tipo: 'sfondo' }))
+  ];
+  ripristino.totale = lista.length;
   let i = 0;
 
   const prossima = () => {
-    if (i >= fotoMega.length) {
+    if (i >= lista.length) {
       ripristino.in_corso = false;
       ripristino.messaggio =
         `✅ Completato: ${ripristino.eventi} eventi recuperati, ` +
-        `${ripristino.foto} foto ripristinate, ${ripristino.errori} errori.`;
+        `${ripristino.foto} foto/video ripristinati, ${ripristino.errori} errori.`;
       programmaSnapshot(3000);
       return;
     }
-    const f = fotoMega[i++];
-    const m = f.name.match(/^([A-Za-z0-9_-]{8})_(.+)\.jpg$/);
-    const token = m[1], filename = m[2];
-    ripristino.messaggio = `Foto ${i} di ${ripristino.totale}…`;
+    const item = lista[i++];
+    ripristino.messaggio = `File ${i} di ${ripristino.totale}…`;
 
-    const evEsiste = db.prepare('SELECT id FROM eventi WHERE token = ?').get(token);
-    if (!evEsiste) {
-      db.prepare(`INSERT INTO eventi (token, nome, data_evento, qualita, attivo, creato_il)
-        VALUES (?, 'Evento recuperato', NULL, 'standard', 1, ?)`)
-        .run(token, new Date().toISOString().slice(0, 19).replace('T', ' '));
-      ripristino.eventi++;
+    let token, filename, percorsoLocale;
+    if (item.tipo === 'sfondo') {
+      filename = item.f.name.slice('sfondo_'.length);
+      percorsoLocale = path.join(CARTELLA_SFONDI, filename);
+    } else {
+      const m = item.f.name.match(/^([A-Za-z0-9_-]{8})_(.+)$/);
+      token = m[1]; filename = m[2];
+      percorsoLocale = path.join(CARTELLA_FOTO, filename);
+
+      const evEsiste = db.prepare('SELECT id FROM eventi WHERE token = ?').get(token);
+      if (!evEsiste) {
+        db.prepare(`INSERT INTO eventi (token, nome, data_evento, qualita, attivo, creato_il, sfondo)
+          VALUES (?, 'Evento recuperato', NULL, 'standard', 1, ?, NULL)`)
+          .run(token, new Date().toISOString().slice(0, 19).replace('T', ' '));
+        ripristino.eventi++;
+      }
+      const registrata = db.prepare('SELECT id FROM foto WHERE evento_token = ? AND filename = ?')
+        .get(token, filename);
+      if (registrata && fs.existsSync(percorsoLocale)) { prossima(); return; }
     }
 
-    const registrata = db.prepare('SELECT id FROM foto WHERE evento_token = ? AND filename = ?')
-      .get(token, filename);
-    const percorsoLocale = path.join(CARTELLA_FOTO, filename);
-    if (registrata && fs.existsSync(percorsoLocale)) { prossima(); return; }
+    if (fs.existsSync(percorsoLocale)) { prossima(); return; } // già presente su disco
 
-    f.downloadBuffer((err, buffer) => {
+    item.f.downloadBuffer((err, buffer) => {
       if (err) { ripristino.errori++; }
       else {
         try {
           fs.writeFileSync(percorsoLocale, buffer);
-          if (!registrata) {
-            let quando = null;
-            try { quando = new Date(f.timestamp).toISOString().slice(0, 19).replace('T', ' '); } catch (e) {}
-            db.prepare('INSERT INTO foto (evento_token, filename, invitato, caricata_il) VALUES (?, ?, ?, ?)')
-              .run(token, filename, 'Invitato', quando);
-            ripristino.foto++;
+          if (item.tipo === 'media') {
+            const registrata = db.prepare('SELECT id FROM foto WHERE evento_token = ? AND filename = ?')
+              .get(token, filename);
+            if (!registrata) {
+              let quando = null;
+              try { quando = new Date(item.f.timestamp).toISOString().slice(0, 19).replace('T', ' '); } catch (e) {}
+              const tipo = /\.(webm|mp4|mov|m4v|mkv)$/i.test(filename) ? 'video' : 'foto';
+              db.prepare('INSERT INTO foto (evento_token, filename, invitato, caricata_il, tipo) VALUES (?, ?, ?, ?, ?)')
+                .run(token, filename, 'Invitato', quando, tipo);
+              ripristino.foto++;
+            }
           }
         } catch (e) { ripristino.errori++; }
       }
@@ -352,6 +421,12 @@ function scaricaFoto(filesMega) {
   };
   prossima();
 }
+
+// Gestore errori (es. file troppo grande, sfondo non-immagine)
+app.use((err, req, res, next) => {
+  console.error('Errore:', err.message);
+  res.status(400).json({ errore: err.message || 'Errore richiesta' });
+});
 
 app.use(express.static('public'));
 

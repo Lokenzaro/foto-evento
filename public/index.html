@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Foto dell'evento</title>
+<title>Evento</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;800&display=swap" rel="stylesheet">
@@ -17,21 +17,25 @@
       radial-gradient(45% 40% at 50% 100%, rgba(56,189,248,.20), transparent 60%);
     background-attachment: fixed; }
   .wrap { max-width: 460px; margin: 0 auto; padding: 1.2rem 1rem 2.5rem; }
-  header { text-align: center; margin-bottom: 1.1rem; }
-  header h1 { margin: 0; font-size: 1.55rem; font-weight: 800;
+
+  header { text-align: center; margin: .6rem 0 1.1rem; min-height: 3.2rem;
+    display: flex; align-items: center; justify-content: center; }
+  header h1 { margin: 0; font-size: clamp(1.9rem, 8vw, 2.5rem); font-weight: 800;
+    line-height: 1.15; text-wrap: balance;
     background: linear-gradient(90deg, #a78bfa, #f472b6);
-    -webkit-background-clip: text; background-clip: text; color: transparent; }
-  .badge-evento { display: inline-block; margin-top: .4rem; padding: .3rem .9rem;
-    border-radius: 99px; font-size: .85rem; font-weight: 600; color: #e9d5ff;
-    background: rgba(168,85,247,.15); border: 1px solid rgba(168,85,247,.4); }
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(0 2px 14px rgba(0,0,0,.45)); }
+
   .card { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12);
     backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
     border-radius: 24px; padding: 1.1rem; }
+
   input[type="text"] { width: 100%; padding: .75rem .9rem; border-radius: 12px;
     border: 1px solid rgba(255,255,255,.15); background: rgba(255,255,255,.08);
     color: #fff; font-size: 1rem; margin-bottom: .9rem; outline: none; }
   input[type="text"]::placeholder { color: #94a3b8; }
   input[type="text"]:focus { border-color: #a78bfa; }
+
   .viewport { position: relative; aspect-ratio: 4/3; border-radius: 20px; overflow: hidden;
     background: #000; border: 1px solid rgba(255,255,255,.15); }
   .viewport video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
@@ -45,16 +49,36 @@
   #flip { position: absolute; top: 10px; right: 10px; width: 42px; height: 42px;
     border: none; border-radius: 50%; background: rgba(0,0,0,.55); color: #fff;
     font-size: 1.15rem; cursor: pointer; }
+  #flip:disabled { opacity: .35; }
   #flash { position: absolute; inset: 0; background: #fff; opacity: 0;
     pointer-events: none; transition: opacity .18s; }
-  .zona-scatto { text-align: center; margin-top: 1rem; }
+  #rec-led { position: absolute; top: 12px; left: 12px; display: none; align-items: center;
+    gap: .4rem; padding: .25rem .6rem; border-radius: 99px; font-size: .78rem; font-weight: 600;
+    background: rgba(0,0,0,.55); color: #fff; }
+  #rec-led::before { content: ''; width: 9px; height: 9px; border-radius: 50%;
+    background: #ef4444; animation: pulsa 1s infinite; }
+  @keyframes pulsa { 50% { opacity: .25; } }
+
+  /* selettore modalità */
+  .modalita { display: flex; justify-content: center; gap: .5rem; margin-top: .9rem; }
+  .modalita button { padding: .5rem 1.1rem; font-size: .9rem; font-weight: 600; cursor: pointer;
+    border: 1px solid rgba(255,255,255,.2); border-radius: 99px;
+    background: rgba(255,255,255,.08); color: #cbd5e1; }
+  .modalita button.attiva { background: linear-gradient(90deg, #7c3aed, #ec4899);
+    border-color: transparent; color: #fff; }
+
+  .zona-scatto { text-align: center; margin-top: .9rem; }
   #scatta { width: 78px; height: 78px; border-radius: 50%; border: none; cursor: pointer;
     background: #fff; box-shadow: 0 0 0 7px rgba(255,255,255,.16), 0 10px 34px rgba(255,255,255,.35);
     transition: transform .08s; }
   #scatta:active { transform: scale(.9); }
+  #scatta.rec { box-shadow: 0 0 0 7px rgba(239,68,68,.25), 0 10px 34px rgba(239,68,68,.5); }
+  #scatta.rec::after { content: ''; display: block; width: 30px; height: 30px; margin: 0 auto;
+    border-radius: 50%; background: #ef4444; }
   .pill { display: inline-block; margin-top: .8rem; padding: .45rem 1.1rem; border-radius: 99px;
     font-size: .85rem; color: #e2e8f0; background: rgba(255,255,255,.09);
     border: 1px solid rgba(255,255,255,.14); }
+
   .secondaria { margin-top: 1rem; display: flex; flex-direction: column; gap: .6rem; }
   .ghost { padding: .65rem; text-align: center; font-size: .92rem; color: #cbd5e1;
     background: transparent; border: 1px dashed rgba(255,255,255,.25); border-radius: 12px;
@@ -69,18 +93,22 @@
     border-radius: 50%; background: #fff; transition: .2s; }
   .switch input:checked + .slider { background: linear-gradient(90deg, #7c3aed, #ec4899); }
   .switch input:checked + .slider::after { left: 21px; }
+
   #coda { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
   #coda:empty { display: none; }
   .mini { position: relative; width: 58px; height: 58px; border-radius: 12px; overflow: hidden;
     border: 1px solid rgba(255,255,255,.2); }
-  .mini img { width: 100%; height: 100%; object-fit: cover; }
+  .mini img, .mini video { width: 100%; height: 100%; object-fit: cover; display: block; }
   .mini .stato { position: absolute; bottom: 2px; right: 2px; font-size: .8rem;
+    filter: drop-shadow(0 1px 2px #000); }
+  .mini .tipo { position: absolute; top: 2px; left: 4px; font-size: .75rem;
     filter: drop-shadow(0 1px 2px #000); }
   .mini.err { border-color: #f87171; cursor: pointer; }
   #stato { text-align: center; min-height: 1.5em; margin: .8rem 0 0; font-size: .92rem; color: #e2e8f0; }
   #invia { display: none; width: 100%; margin-top: .7rem; padding: .9rem; font-size: 1rem;
     font-weight: 600; border: none; border-radius: 14px; cursor: pointer;
     background: linear-gradient(90deg, #7c3aed, #ec4899); color: #fff; }
+
   .link-galleria { display: block; text-align: center; margin-top: 1.4rem; font-weight: 600;
     background: linear-gradient(90deg, #7dd3fc, #a78bfa);
     -webkit-background-clip: text; background-clip: text; color: transparent; }
@@ -90,8 +118,7 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>📸 Foto dell'evento</h1>
-    <span class="badge-evento" id="nome-evento">…</span>
+    <h1 id="nome-evento">…</h1>
   </header>
 
   <div class="card">
@@ -100,6 +127,7 @@
     <div class="viewport">
       <video id="video" autoplay muted playsinline></video>
       <div id="flash"></div>
+      <span id="rec-led">REC</span>
       <button id="flip" onclick="cambiaCamera()" title="Cambia fotocamera">🔄</button>
       <div id="overlay-avvio">
         <p id="ov-msg">Tocca per attivare la fotocamera</p>
@@ -107,20 +135,25 @@
       </div>
     </div>
 
+    <div class="modalita">
+      <button id="m-foto" class="attiva" onclick="cambiaModalita('foto')">📷 Foto</button>
+      <button id="m-video" onclick="cambiaModalita('video')">🎥 Video</button>
+    </div>
+
     <div class="zona-scatto">
-      <button id="scatta" onclick="scatta()" title="Scatta"></button>
-      <br><span class="pill">Inquadra e premi il pulsante</span>
+      <button id="scatta" onclick="scatta()" title="Scatta / Registra"></button>
+      <br><span class="pill" id="hint">Inquadra e premi il pulsante</span>
     </div>
 
     <div class="secondaria">
-      <label class="ghost" for="file">🖼️ oppure scegli le foto dal telefono</label>
-      <input type="file" id="file" accept="image/*" multiple hidden>
+      <label class="ghost" for="file">🖼️ oppure scegli foto/video dal telefono</label>
+      <input type="file" id="file" accept="image/*,video/*" multiple hidden>
       <div class="opzioni">
         <label class="switch">Invio automatico
           <input type="checkbox" id="auto" checked>
           <span class="slider"></span>
         </label>
-        <span id="contatore">0 inviate</span>
+        <span id="contatore">0 inviati</span>
       </div>
     </div>
 
@@ -130,7 +163,7 @@
   </div>
 
   <a class="link-galleria" id="link-galleria" href="#">🖼️ Vedi la galleria dell'evento →</a>
-  <p class="tag-versione">pagina invitato · v4</p>
+  <p class="tag-versione">pagina invitato · v5</p>
 </div>
 
 <script>
@@ -140,9 +173,16 @@ const LIVELLI = {
   standard:  { max: 1920, q: .85 },
   massima:   { max: 4000, q: .92 }
 };
+const MAX_VIDEO_SEC = 60;                    // auto-stop registrazione
+const MAX_UPLOAD = 100 * 1024 * 1024;        // 100 MB
+
 let qualitaCorrente = 'standard';
 const coda = [];
-let invioInCorso = false, inviateOk = 0;
+let invioInCorso = false, inviatiOk = 0;
+
+let modalita = 'foto';
+let stream = null, facing = 'environment';
+let recorder = null, chunksRec = [], registrazione = false, recTimer = null, recSec = 0;
 
 const stato = document.getElementById('stato');
 document.getElementById('link-galleria').href = '/galleria/' + token;
@@ -150,24 +190,35 @@ document.getElementById('nome').value = localStorage.getItem('nome-invitato') ||
 document.getElementById('nome').addEventListener('input', e =>
   localStorage.setItem('nome-invitato', e.target.value.trim()));
 
+if (!window.MediaRecorder) document.getElementById('m-video').style.display = 'none';
+
+// Nome evento, qualità, sfondo personalizzato
 fetch('/api/evento/' + token)
   .then(r => { if (!r.ok) throw new Error(); return r.json(); })
   .then(d => {
     document.getElementById('nome-evento').textContent = d.nome;
+    document.title = d.nome;
     if (LIVELLI[d.qualita]) qualitaCorrente = d.qualita;
+    if (d.sfondo) {
+      document.body.style.backgroundImage =
+        `linear-gradient(rgba(11,16,32,.78), rgba(11,16,32,.84)), url('${d.sfondo}')`;
+      document.body.style.backgroundSize = 'cover';
+      document.body.style.backgroundPosition = 'center';
+      document.body.style.backgroundAttachment = 'fixed';
+    }
   })
   .catch(() => {});
 
-let stream = null, facing = 'environment';
-
+// ---------- FOTOCAMERA ----------
 async function avviaCamera() {
-  const cfg = LIVELLI[qualitaCorrente];
+  const vincoli = modalita === 'video'
+    ? { width: { ideal: 1280 }, height: { ideal: 720 } }   // video: file più leggeri
+    : { width:  { ideal: Math.min(LIVELLI[qualitaCorrente].max, 3840) },
+        height: { ideal: Math.min(LIVELLI[qualitaCorrente].max, 2160) } };
   try {
     stream = await navigator.mediaDevices.getUserMedia({
-      audio: false,
-      video: { facingMode: facing,
-               width:  { ideal: Math.min(cfg.max, 3840) },
-               height: { ideal: Math.min(cfg.max, 2160) } }
+      audio: modalita === 'video',        // audio solo per i video
+      video: { facingMode: facing, ...vincoli }
     });
     document.getElementById('video').srcObject = stream;
     document.getElementById('overlay-avvio').style.display = 'none';
@@ -180,12 +231,40 @@ async function avviaCamera() {
 window.addEventListener('load', avviaCamera);
 
 async function cambiaCamera() {
+  if (registrazione) return;
   facing = facing === 'environment' ? 'user' : 'environment';
   if (stream) stream.getTracks().forEach(t => t.stop());
   await avviaCamera();
 }
 
+// ---------- MODALITÀ FOTO / VIDEO ----------
+function aggiornaHint() {
+  const h = document.getElementById('hint');
+  if (registrazione) {
+    const mm = String(Math.floor(recSec / 60)).padStart(2, '0');
+    const ss = String(recSec % 60).padStart(2, '0');
+    h.textContent = `⏺ ${mm}:${ss} — tocca per fermare (max ${MAX_VIDEO_SEC}s)`;
+  } else if (modalita === 'video') {
+    h.textContent = 'Tocca il pulsante per registrare';
+  } else {
+    h.textContent = 'Inquadra e premi il pulsante';
+  }
+}
+
+async function cambiaModalita(m) {
+  if (m === modalita || registrazione) return;
+  modalita = m;
+  document.getElementById('m-foto').classList.toggle('attiva', m === 'foto');
+  document.getElementById('m-video').classList.toggle('attiva', m === 'video');
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  await avviaCamera();
+  aggiornaHint();
+}
+
+// ---------- SCATTO / REGISTRAZIONE ----------
 function scatta() {
+  if (modalita === 'video') { registrazione ? fermaRec() : avviaRec(); return; }
+
   const v = document.getElementById('video');
   if (!stream || !v.videoWidth) { avviaCamera(); return; }
   const f = document.getElementById('flash');
@@ -194,11 +273,47 @@ function scatta() {
   c.width = v.videoWidth; c.height = v.videoHeight;
   c.getContext('2d').drawImage(v, 0, 0);
   c.toBlob(b => {
-    if (b) aggiungiFoto(new File([b], 'scatto.jpg', { type: 'image/jpeg' }));
+    if (b) aggiungiMedia(new File([b], 'scatto.jpg', { type: 'image/jpeg' }));
   }, 'image/jpeg', LIVELLI[qualitaCorrente].q);
 }
 
-function aggiungiFoto(file) {
+function avviaRec() {
+  if (!stream) { avviaCamera(); return; }
+  const candidati = ['video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+  const mime = candidati.find(t => MediaRecorder.isTypeSupported(t));
+  if (!mime) { toast('⚠️ Registrazione video non supportata da questo browser'); return; }
+
+  chunksRec = [];
+  recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 2500000 });
+  recorder.ondataavailable = e => { if (e.data && e.data.size) chunksRec.push(e.data); };
+  recorder.onstop = () => {
+    const mimeBase = mime.split(';')[0];
+    const ext = mimeBase === 'video/mp4' ? 'mp4' : 'webm';
+    const blob = new Blob(chunksRec, { type: mimeBase });
+    aggiungiMedia(new File([blob], 'video.' + ext, { type: mimeBase }));
+    registrazione = false;
+    clearInterval(recTimer);
+    document.getElementById('scatta').classList.remove('rec');
+    document.getElementById('rec-led').style.display = 'none';
+    document.getElementById('flip').disabled = false;
+    aggiornaHint();
+  };
+  recorder.start(1000);
+  registrazione = true; recSec = 0;
+  document.getElementById('scatta').classList.add('rec');
+  document.getElementById('rec-led').style.display = 'flex';
+  document.getElementById('flip').disabled = true;
+  aggiornaHint();
+  recTimer = setInterval(() => {
+    recSec++; aggiornaHint();
+    if (recSec >= MAX_VIDEO_SEC) fermaRec();
+  }, 1000);
+}
+function fermaRec() { if (recorder && recorder.state !== 'inactive') recorder.stop(); }
+
+// ---------- CODA + INVIO ----------
+function aggiungiMedia(file) {
+  if (file.size > MAX_UPLOAD) { toast('⚠️ File troppo grande (max 100 MB)'); return; }
   coda.push({ file, url: URL.createObjectURL(file), stato: 'attesa' });
   disegnaCoda();
   if (document.getElementById('auto').checked) processaCoda();
@@ -206,22 +321,33 @@ function aggiungiFoto(file) {
 }
 
 document.getElementById('file').addEventListener('change', e => {
-  for (const f of e.target.files) if (f.type.startsWith('image/')) aggiungiFoto(f);
+  for (const f of e.target.files) {
+    if (f.type.startsWith('image/') || f.type.startsWith('video/')) aggiungiMedia(f);
+  }
   e.target.value = '';
 });
 
 function disegnaCoda() {
   const g = document.getElementById('coda');
   g.innerHTML = '';
-  coda.forEach((item) => {
+  coda.forEach(item => {
     const d = document.createElement('div');
     d.className = 'mini' + (item.stato === 'err' ? ' err' : '');
     if (item.stato === 'err') d.title = 'Tocca per riprovare';
     d.onclick = () => { if (item.stato === 'err') { item.stato = 'attesa'; disegnaCoda(); processaCoda(); } };
-    const img = document.createElement('img'); img.src = item.url;
+    if (item.file.type.startsWith('video/')) {
+      const v = document.createElement('video');
+      v.src = item.url; v.muted = true; v.playsInline = true; v.preload = 'metadata';
+      d.append(v);
+    } else {
+      const img = document.createElement('img'); img.src = item.url;
+      d.append(img);
+    }
+    const t = document.createElement('span'); t.className = 'tipo';
+    if (item.file.type.startsWith('video/')) t.textContent = '🎬';
     const s = document.createElement('span'); s.className = 'stato';
     s.textContent = { attesa: '⏳', invio: '⏳', ok: '✅', err: '⚠️' }[item.stato];
-    d.append(img, s); g.append(d);
+    d.append(t, s); g.append(d);
   });
 }
 
@@ -240,13 +366,13 @@ async function processaCoda() {
       fd.append('foto', file);
       const r = await fetch('/upload', { method: 'POST', body: fd });
       if (!r.ok) throw new Error();
-      item.stato = 'ok'; inviateOk++;
-      toast(`✅ Foto inviata — totale: ${inviateOk}`);
+      item.stato = 'ok'; inviatiOk++;
+      toast(`✅ Inviato — totale: ${inviatiOk}`);
     } catch (e) {
       item.stato = 'err';
-      toast('⚠️ Invio fallito: tocca la foto rossa per riprovare');
+      toast('⚠️ Invio fallito: tocca l\'elemento rosso per riprovare');
     }
-    document.getElementById('contatore').textContent = `${inviateOk} inviate`;
+    document.getElementById('contatore').textContent = `${inviatiOk} inviati`;
     disegnaCoda();
   }
   invioInCorso = false; aggiornaBottone();
@@ -256,14 +382,16 @@ function aggiornaBottone() {
   const inAttesa = coda.filter(i => i.stato === 'attesa' || i.stato === 'err').length;
   const b = document.getElementById('invia');
   b.style.display = inAttesa && !document.getElementById('auto').checked ? 'block' : 'none';
-  b.textContent = `🚀 Invia ${inAttesa} foto`;
+  b.textContent = `🚀 Invia ${inAttesa} elementi`;
 }
 function reinviaTutto() {
   coda.forEach(i => { if (i.stato === 'err') i.stato = 'attesa'; });
   disegnaCoda(); processaCoda();
 }
 
+// ---------- COMPRESSIONE (solo immagini; i video partono come sono) ----------
 function comprimi(file) {
+  if (file.type.startsWith('video/')) return Promise.resolve(file);
   const { max, q } = LIVELLI[qualitaCorrente];
   if (file.size < 300 * 1024) return Promise.resolve(file);
   return new Promise(ok => {
