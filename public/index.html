@@ -1,298 +1,192 @@
 <!DOCTYPE html>
-<!-- ⬇️ QUESTA È LA PAGINA INVITATO (index.html) - NON è il pannello admin! -->
 <html lang="it">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Foto dell'evento</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<title>Admin – Foto Evento</title>
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;800&display=swap" rel="stylesheet">
 <style>
   * { box-sizing: border-box; font-family: 'Sora', system-ui, sans-serif; }
-  body { margin: 0; min-height: 100vh; color: #f1f5f9; background: #0b1020;
-    background-image:
-      radial-gradient(60% 45% at 18% 0%, rgba(124,58,237,.38), transparent 60%),
-      radial-gradient(50% 40% at 92% 8%, rgba(236,72,153,.28), transparent 60%),
-      radial-gradient(45% 40% at 50% 100%, rgba(56,189,248,.20), transparent 60%);
+  body { margin: 0; background: #0b1020; color: #e2e8f0;
+    background-image: radial-gradient(60% 45% at 15% 0%, rgba(124,58,237,.30), transparent 60%),
+      radial-gradient(50% 40% at 90% 10%, rgba(236,72,153,.20), transparent 60%);
     background-attachment: fixed; }
-  .wrap { max-width: 460px; margin: 0 auto; padding: 1.2rem 1rem 2.5rem; }
-
-  header { text-align: center; margin-bottom: 1.1rem; }
-  header h1 { margin: 0; font-size: 1.55rem; font-weight: 800;
+  header { background: rgba(255,255,255,.05); border-bottom: 1px solid rgba(255,255,255,.1);
+    padding: 1rem 1.5rem; display: flex; justify-content: space-between; align-items: center; }
+  header h1 { margin: 0; font-size: 1.3rem; font-weight: 800;
     background: linear-gradient(90deg, #a78bfa, #f472b6);
     -webkit-background-clip: text; background-clip: text; color: transparent; }
-  .badge-evento { display: inline-block; margin-top: .4rem; padding: .3rem .9rem;
-    border-radius: 99px; font-size: .85rem; font-weight: 600; color: #e9d5ff;
-    background: rgba(168,85,247,.15); border: 1px solid rgba(168,85,247,.4); }
-
+  header .azioni { display: flex; gap: .5rem; }
+  main { max-width: 1050px; margin: 1.5rem auto; padding: 0 1rem; }
   .card { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12);
-    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
-    border-radius: 24px; padding: 1.1rem; }
-
-  input[type="text"] { width: 100%; padding: .75rem .9rem; border-radius: 12px;
-    border: 1px solid rgba(255,255,255,.15); background: rgba(255,255,255,.08);
-    color: #fff; font-size: 1rem; margin-bottom: .9rem; outline: none; }
-  input[type="text"]::placeholder { color: #94a3b8; }
-  input[type="text"]:focus { border-color: #a78bfa; }
-
-  .viewport { position: relative; aspect-ratio: 4/3; border-radius: 20px; overflow: hidden;
-    background: #000; border: 1px solid rgba(255,255,255,.15); }
-  .viewport video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-  #overlay-avvio { position: absolute; inset: 0; display: flex; flex-direction: column;
-    align-items: center; justify-content: center; gap: .8rem; text-align: center;
-    background: linear-gradient(135deg, rgba(124,58,237,.25), rgba(236,72,153,.18)); padding: 1rem; }
-  #overlay-avvio button { padding: .8rem 1.4rem; font-size: 1rem; font-weight: 600;
-    border: none; border-radius: 14px; cursor: pointer;
-    background: linear-gradient(90deg, #7c3aed, #ec4899); color: #fff; }
-  #ov-msg { font-size: .85rem; color: #e2e8f0; margin: 0; }
-  #flip { position: absolute; top: 10px; right: 10px; width: 42px; height: 42px;
-    border: none; border-radius: 50%; background: rgba(0,0,0,.55); color: #fff;
-    font-size: 1.15rem; cursor: pointer; }
-  #flash { position: absolute; inset: 0; background: #fff; opacity: 0;
-    pointer-events: none; transition: opacity .18s; }
-
-  .zona-scatto { text-align: center; margin-top: 1rem; }
-  #scatta { width: 78px; height: 78px; border-radius: 50%; border: none; cursor: pointer;
-    background: #fff; box-shadow: 0 0 0 7px rgba(255,255,255,.16), 0 10px 34px rgba(255,255,255,.35);
-    transition: transform .08s; }
-  #scatta:active { transform: scale(.9); }
-  .pill { display: inline-block; margin-top: .8rem; padding: .45rem 1.1rem; border-radius: 99px;
-    font-size: .85rem; color: #e2e8f0; background: rgba(255,255,255,.09);
-    border: 1px solid rgba(255,255,255,.14); }
-
-  .secondaria { margin-top: 1rem; display: flex; flex-direction: column; gap: .6rem; }
-  .ghost { padding: .65rem; text-align: center; font-size: .92rem; color: #cbd5e1;
-    background: transparent; border: 1px dashed rgba(255,255,255,.25); border-radius: 12px;
-    cursor: pointer; }
-  .opzioni { display: flex; justify-content: space-between; align-items: center;
-    font-size: .85rem; color: #94a3b8; }
-  .switch { display: flex; align-items: center; gap: .5rem; cursor: pointer; }
-  .switch input { display: none; }
-  .slider { width: 40px; height: 22px; border-radius: 99px; background: rgba(255,255,255,.18);
-    position: relative; transition: .2s; }
-  .slider::after { content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px;
-    border-radius: 50%; background: #fff; transition: .2s; }
-  .switch input:checked + .slider { background: linear-gradient(90deg, #7c3aed, #ec4899); }
-  .switch input:checked + .slider::after { left: 21px; }
-
-  #coda { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
-  #coda:empty { display: none; }
-  .mini { position: relative; width: 58px; height: 58px; border-radius: 12px; overflow: hidden;
-    border: 1px solid rgba(255,255,255,.2); }
-  .mini img { width: 100%; height: 100%; object-fit: cover; }
-  .mini .stato { position: absolute; bottom: 2px; right: 2px; font-size: .8rem;
-    filter: drop-shadow(0 1px 2px #000); }
-  .mini.err { border-color: #f87171; cursor: pointer; }
-  #stato { text-align: center; min-height: 1.5em; margin: .8rem 0 0; font-size: .92rem; color: #e2e8f0; }
-  #invia { display: none; width: 100%; margin-top: .7rem; padding: .9rem; font-size: 1rem;
-    font-weight: 600; border: none; border-radius: 14px; cursor: pointer;
-    background: linear-gradient(90deg, #7c3aed, #ec4899); color: #fff; }
-
-  .link-galleria { display: block; text-align: center; margin-top: 1.4rem; font-weight: 600;
-    background: linear-gradient(90deg, #7dd3fc, #a78bfa);
-    -webkit-background-clip: text; background-clip: text; color: transparent; }
-  .tag-versione { text-align: center; margin-top: 1.6rem; font-size: .7rem; color: #475569; }
+    border-radius: 18px; padding: 1.25rem; margin-bottom: 1.5rem; }
+  input, select, button { font-size: .95rem; padding: .6rem .8rem; border-radius: 10px;
+    border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.08); color: #fff; }
+  select option { color: #000; }
+  button { background: linear-gradient(90deg, #7c3aed, #ec4899); border: none; cursor: pointer; font-weight: 600; }
+  button:hover { filter: brightness(1.1); }
+  button.danger { background: #dc2626; }
+  button.gray { background: rgba(255,255,255,.15); }
+  button.teal { background: linear-gradient(90deg, #0d9488, #22d3ee); }
+  button.cloud { background: linear-gradient(90deg, #d97706, #fbbf24); }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: .6rem; text-align: left; border-bottom: 1px solid rgba(255,255,255,.08); vertical-align: middle; }
+  img.qr { width: 90px; height: 90px; cursor: zoom-in; border-radius: 8px; background: #fff; padding: 4px; }
+  .badge { padding: .2rem .6rem; border-radius: 99px; font-size: .78rem; }
+  .on { background: rgba(34,197,94,.2); color: #4ade80; }
+  .off { background: rgba(239,68,68,.2); color: #f87171; }
+  #login { max-width: 360px; margin: 4rem auto; }
+  #login input { width: 100%; margin-bottom: .7rem; }
+  .muted { color: #94a3b8; font-size: .82rem; }
+  #msg-ripristino { margin: .3rem 0 0; font-size: .95rem; }
 </style>
 </head>
 <body>
-<div class="wrap">
+
+<div id="login" class="card">
+  <h2 style="margin-top:0">🔐 Accesso organizzatore</h2>
+  <input type="password" id="pw" placeholder="Password admin"
+         onkeydown="if(event.key==='Enter')login()">
+  <button onclick="login()" style="width:100%">Entra</button>
+</div>
+
+<div id="pannello" style="display:none">
   <header>
-    <h1>📸 Foto dell'evento</h1>
-    <span class="badge-evento" id="nome-evento">…</span>
+    <h1>📸 Gestione Eventi</h1>
+    <div class="azioni">
+      <button class="cloud" onclick="avviaRipristino()">☁️ Ripristina da MEGA</button>
+      <button class="gray" onclick="logout()">Esci</button>
+    </div>
   </header>
+  <main>
 
-  <div class="card">
-    <input type="text" id="nome" placeholder="Il tuo nome (facoltativo)" maxlength="50">
-
-    <div class="viewport">
-      <video id="video" autoplay muted playsinline></video>
-      <div id="flash"></div>
-      <button id="flip" onclick="cambiaCamera()" title="Cambia fotocamera">🔄</button>
-      <div id="overlay-avvio">
-        <p id="ov-msg">Tocca per attivare la fotocamera</p>
-        <button onclick="avviaCamera()">📷 Attiva la fotocamera</button>
-      </div>
+    <!-- AVANZAMENTO RIPRISTINO -->
+    <div id="ripristino" class="card" style="display:none">
+      <h2 style="margin-top:0;font-size:1.05rem">☁️ Ripristino dal backup MEGA</h2>
+      <p id="msg-ripristino">Avvio…</p>
+      <p class="muted">Puoi lasciare aperta questa pagina: lo stato si aggiorna da solo ogni 2 secondi.</p>
     </div>
 
-    <div class="zona-scatto">
-      <button id="scatta" onclick="scatta()" title="Scatta"></button>
-      <br><span class="pill">Inquadra e premi il pulsante</span>
+    <div class="card">
+      <h2 style="margin-top:0;font-size:1.1rem">Nuovo evento</h2>
+      <input id="nome" placeholder="Nome evento (es. Matrimonio Rossi)">
+      <input id="data" type="date">
+      <select id="qualita">
+        <option value="risparmio">🟢 Risparmio dati (1280 px)</option>
+        <option value="standard" selected>🔵 Standard (1920 px)</option>
+        <option value="massima">🔴 Massima qualità (4000 px)</option>
+      </select>
+      <button onclick="crea()">➕ Crea evento e QR code</button>
     </div>
 
-    <div class="secondaria">
-      <label class="ghost" for="file">🖼️ oppure scegli le foto dal telefono</label>
-      <input type="file" id="file" accept="image/*" multiple hidden>
-      <div class="opzioni">
-        <label class="switch">Invio automatico
-          <input type="checkbox" id="auto" checked>
-          <span class="slider"></span>
-        </label>
-        <span id="contatore">0 inviate</span>
-      </div>
+    <div class="card">
+      <table>
+        <thead><tr><th>Evento</th><th>Data</th><th>Foto</th><th>Stato</th><th>Qualità</th><th>QR</th><th>Azioni</th></tr></thead>
+        <tbody id="righe"></tbody>
+      </table>
+      <p class="muted">💡 Clicca su un QR per ingrandirlo • La qualità si applica alle foto inviate da quel momento in poi.</p>
+      <p class="muted">☁️ Ogni foto e un riepilogo del database vengono copiati automaticamente su MEGA. Se il server perde i dati, premi «Ripristina da MEGA».</p>
     </div>
+  </main>
+</div>
 
-    <div id="coda"></div>
-    <p id="stato"></p>
-    <button id="invia" onclick="reinviaTutto()">🚀 Invia ora</button>
-  </div>
-
-  <a class="link-galleria" id="link-galleria" href="#">🖼️ Vedi la galleria dell'evento →</a>
-  <p class="tag-versione">pagina invitato · v3</p>
+<div id="lightbox" onclick="this.style.display='none'"
+     style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.92); z-index:50;
+            flex-direction:column; align-items:center; justify-content:center; gap:1rem; cursor:pointer;">
+  <img id="bigqr" style="max-width:80vmin; background:#fff; padding:14px; border-radius:14px;">
+  <p style="color:#fff">Tocca per chiudere</p>
 </div>
 
 <script>
-const token = location.pathname.split('/')[2];
-const LIVELLI = {
-  risparmio: { max: 1280, q: .80 },
-  standard:  { max: 1920, q: .85 },
-  massima:   { max: 4000, q: .92 }
-};
-let qualitaCorrente = 'standard';
-const coda = [];
-let invioInCorso = false, inviateOk = 0;
+const $ = s => document.querySelector(s);
+const esc = s => s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-const stato = document.getElementById('stato');
-document.getElementById('link-galleria').href = '/galleria/' + token;
-document.getElementById('nome').value = localStorage.getItem('nome-invitato') || '';
-document.getElementById('nome').addEventListener('input', e =>
-  localStorage.setItem('nome-invitato', e.target.value.trim()));
+async function login() {
+  const r = await fetch('/admin/login', { method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify({ password: $('#pw').value }) });
+  if (r.ok) entra(); else alert('Password errata');
+}
+async function logout() { await fetch('/admin/logout', { method:'POST' }); location.reload(); }
+function entra() { $('#login').style.display='none'; $('#pannello').style.display='block'; carica(); }
 
-fetch('/api/evento/' + token)
-  .then(r => { if (!r.ok) throw new Error(); return r.json(); })
-  .then(d => {
-    document.getElementById('nome-evento').textContent = d.nome;
-    if (LIVELLI[d.qualita]) qualitaCorrente = d.qualita;
-  })
-  .catch(() => {});
+async function carica() {
+  const eventi = await (await fetch('/api/eventi')).json();
+  $('#righe').innerHTML = eventi.map(e => `
+    <tr>
+      <td><strong>${esc(e.nome)}</strong><br><span class="muted">/e/${e.token}</span></td>
+      <td>${e.data_evento || '—'}</td>
+      <td><strong>${e.num_foto}</strong></td>
+      <td><span class="badge ${e.attivo ? 'on' : 'off'}">${e.attivo ? 'Attivo' : 'Chiuso'}</span></td>
+      <td>
+        <select onchange="cambiaQualita(${e.id}, this.value)">
+          <option value="risparmio" ${e.qualita==='risparmio'?'selected':''}>🟢 1280 px</option>
+          <option value="standard"  ${e.qualita==='standard' || !e.qualita ?'selected':''}>🔵 1920 px</option>
+          <option value="massima"   ${e.qualita==='massima'?'selected':''}>🔴 4000 px</option>
+        </select>
+      </td>
+      <td><img class="qr" src="/qr/${e.token}" onclick="mostraQR('${e.token}')"></td>
+      <td>
+        <button onclick="copia('${e.link}')">📋</button>
+        <button onclick="scaricaQR('${e.token}')">⬇️</button>
+        <button class="teal" onclick="galleria('${e.token}')">🖼️</button>
+        <button class="gray" onclick="toggle(${e.id})">${e.attivo ? '🔒' : '🔓'}</button>
+        <button class="danger" onclick="elimina(${e.id})">🗑️</button>
+      </td>
+    </tr>`).join('');
+}
 
-let stream = null, facing = 'environment';
+function mostraQR(t) { $('#bigqr').src = `/qr/${t}`; $('#lightbox').style.display = 'flex'; }
+function scaricaQR(t) { const a = document.createElement('a'); a.href = `/qr/${t}`; a.download = `qr-${t}.png`; a.click(); }
+function copia(l) { navigator.clipboard.writeText(l); alert('Link copiato:\n' + l); }
+function galleria(t) { window.open('/galleria/' + t, '_blank'); }
 
-async function avviaCamera() {
-  const cfg = LIVELLI[qualitaCorrente];
+async function crea() {
+  const r = await fetch('/api/eventi', { method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ nome: $('#nome').value, data_evento: $('#data').value, qualita: $('#qualita').value }) });
+  const d = await r.json();
+  if (!r.ok) return alert(d.errore);
+  $('#nome').value = ''; $('#data').value = '';
+  carica();
+}
+
+async function cambiaQualita(id, qualita) {
+  await fetch(`/api/eventi/${id}/qualita`, { method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify({ qualita }) });
+}
+
+async function toggle(id) { await fetch(`/api/eventi/${id}/toggle`, { method:'POST' }); carica(); }
+async function elimina(id) {
+  if (!confirm('Eliminare definitivamente questo evento? Verranno cancellate anche le sue foto (anche dal backup MEGA).')) return;
+  await fetch(`/api/eventi/${id}`, { method:'DELETE' }); carica();
+}
+
+// --- RIPRISTINO DA MEGA ---
+let timerRipristino = null;
+async function avviaRipristino() {
+  if (!confirm('Ripristinare eventi e foto dal backup MEGA?\n\n' +
+      'Operazione SICURA: ciò che esiste già sul server non viene toccato, ' +
+      'vengono solo riaggiunti gli elementi mancanti.')) return;
+  const r = await fetch('/admin/ripristino', { method: 'POST' });
+  const d = await r.json();
+  if (!r.ok) return alert(d.errore || 'Errore avvio ripristino');
+  $('#ripristino').style.display = 'block';
+  clearInterval(timerRipristino);
+  timerRipristino = setInterval(statoRipristino, 2000);
+  statoRipristino();
+}
+async function statoRipristino() {
   try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: false,
-      video: { facingMode: facing,
-               width:  { ideal: Math.min(cfg.max, 3840) },
-               height: { ideal: Math.min(cfg.max, 2160) } }
-    });
-    document.getElementById('video').srcObject = stream;
-    document.getElementById('overlay-avvio').style.display = 'none';
-  } catch (e) {
-    document.getElementById('overlay-avvio').style.display = 'flex';
-    document.getElementById('ov-msg').textContent =
-      'Permesso negato o fotocamera non disponibile. Tocca il pulsante per riprovare.';
-  }
-}
-window.addEventListener('load', avviaCamera);
-
-async function cambiaCamera() {
-  facing = facing === 'environment' ? 'user' : 'environment';
-  if (stream) stream.getTracks().forEach(t => t.stop());
-  await avviaCamera();
-}
-
-function scatta() {
-  const v = document.getElementById('video');
-  if (!stream || !v.videoWidth) { avviaCamera(); return; }
-  const f = document.getElementById('flash');
-  f.style.opacity = .85; setTimeout(() => f.style.opacity = 0, 120);
-  const c = document.createElement('canvas');
-  c.width = v.videoWidth; c.height = v.videoHeight;
-  c.getContext('2d').drawImage(v, 0, 0);
-  c.toBlob(b => {
-    if (b) aggiungiFoto(new File([b], 'scatto.jpg', { type: 'image/jpeg' }));
-  }, 'image/jpeg', LIVELLI[qualitaCorrente].q);
-}
-
-function aggiungiFoto(file) {
-  coda.push({ file, url: URL.createObjectURL(file), stato: 'attesa' });
-  disegnaCoda();
-  if (document.getElementById('auto').checked) processaCoda();
-  else aggiornaBottone();
-}
-
-document.getElementById('file').addEventListener('change', e => {
-  for (const f of e.target.files) if (f.type.startsWith('image/')) aggiungiFoto(f);
-  e.target.value = '';
-});
-
-function disegnaCoda() {
-  const g = document.getElementById('coda');
-  g.innerHTML = '';
-  coda.forEach((item, i) => {
-    const d = document.createElement('div');
-    d.className = 'mini' + (item.stato === 'err' ? ' err' : '');
-    if (item.stato === 'err') d.title = 'Tocca per riprovare';
-    d.onclick = () => { if (item.stato === 'err') { item.stato = 'attesa'; disegnaCoda(); processaCoda(); } };
-    const img = document.createElement('img'); img.src = item.url;
-    const s = document.createElement('span'); s.className = 'stato';
-    s.textContent = { attesa: '⏳', invio: '⏳', ok: '✅', err: '⚠️' }[item.stato];
-    d.append(img, s); g.append(d);
-  });
-}
-
-async function processaCoda() {
-  if (invioInCorso) return;
-  invioInCorso = true; aggiornaBottone();
-  while (true) {
-    const item = coda.find(i => i.stato === 'attesa');
-    if (!item) break;
-    item.stato = 'invio'; disegnaCoda();
-    try {
-      const file = await comprimi(item.file);
-      const fd = new FormData();
-      fd.append('token', token);
-      fd.append('nome', document.getElementById('nome').value.trim() || 'Invitato');
-      fd.append('foto', file);
-      const r = await fetch('/upload', { method: 'POST', body: fd });
-      if (!r.ok) throw new Error();
-      item.stato = 'ok'; inviateOk++;
-      toast(`✅ Foto inviata — totale: ${inviateOk}`);
-    } catch (e) {
-      item.stato = 'err';
-      toast('⚠️ Invio fallito: tocca la foto rossa per riprovare');
+    const s = await (await fetch('/admin/stato-ripristino')).json();
+    $('#msg-ripristino').textContent = s.messaggio || '';
+    if (!s.in_corso) {
+      clearInterval(timerRipristino);
+      carica(); // aggiorna i contatori della tabella
     }
-    document.getElementById('contatore').textContent = `${inviateOk} inviate`;
-    disegnaCoda();
-  }
-  invioInCorso = false; aggiornaBottone();
+  } catch (e) {}
 }
 
-function aggiornaBottone() {
-  const inAttesa = coda.filter(i => i.stato === 'attesa' || i.stato === 'err').length;
-  const b = document.getElementById('invia');
-  b.style.display = inAttesa && !document.getElementById('auto').checked ? 'block' : 'none';
-  b.textContent = `🚀 Invia ${inAttesa} foto`;
-}
-function reinviaTutto() {
-  coda.forEach(i => { if (i.stato === 'err') i.stato = 'attesa'; });
-  disegnaCoda(); processaCoda();
-}
-
-function comprimi(file) {
-  const { max, q } = LIVELLI[qualitaCorrente];
-  if (file.size < 300 * 1024) return Promise.resolve(file);
-  return new Promise(ok => {
-    const img = new Image();
-    img.onload = () => {
-      let w = img.naturalWidth, h = img.naturalHeight;
-      if (Math.max(w, h) > max) {
-        const s = max / Math.max(w, h);
-        w = Math.round(w * s); h = Math.round(h * s);
-      }
-      const c = document.createElement('canvas');
-      c.width = w; c.height = h;
-      c.getContext('2d').drawImage(img, 0, 0, w, h);
-      c.toBlob(b => { URL.revokeObjectURL(img.src); ok(b ? new File([b], 'foto.jpg', { type: 'image/jpeg' }) : file); }, 'image/jpeg', q);
-    };
-    img.onerror = () => ok(file);
-    img.src = URL.createObjectURL(file);
-  });
-}
-
-function toast(msg) { stato.textContent = msg; }
+fetch('/api/eventi').then(r => { if (r.ok) entra(); });
 </script>
 </body>
 </html>
