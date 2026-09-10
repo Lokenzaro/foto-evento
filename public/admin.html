@@ -16,6 +16,7 @@
   header h1 { margin: 0; font-size: 1.3rem; font-weight: 800;
     background: linear-gradient(90deg, #a78bfa, #f472b6);
     -webkit-background-clip: text; background-clip: text; color: transparent; }
+  header .azioni { display: flex; gap: .5rem; }
   main { max-width: 1050px; margin: 1.5rem auto; padding: 0 1rem; }
   .card { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12);
     border-radius: 18px; padding: 1.25rem; margin-bottom: 1.5rem; }
@@ -27,6 +28,7 @@
   button.danger { background: #dc2626; }
   button.gray { background: rgba(255,255,255,.15); }
   button.teal { background: linear-gradient(90deg, #0d9488, #22d3ee); }
+  button.cloud { background: linear-gradient(90deg, #d97706, #fbbf24); }
   table { width: 100%; border-collapse: collapse; }
   th, td { padding: .6rem; text-align: left; border-bottom: 1px solid rgba(255,255,255,.08); vertical-align: middle; }
   img.qr { width: 90px; height: 90px; cursor: zoom-in; border-radius: 8px; background: #fff; padding: 4px; }
@@ -36,6 +38,7 @@
   #login { max-width: 360px; margin: 4rem auto; }
   #login input { width: 100%; margin-bottom: .7rem; }
   .muted { color: #94a3b8; font-size: .82rem; }
+  #msg-ripristino { margin: .3rem 0 0; font-size: .95rem; }
 </style>
 </head>
 <body>
@@ -50,9 +53,20 @@
 <div id="pannello" style="display:none">
   <header>
     <h1>📸 Gestione Eventi</h1>
-    <button class="gray" onclick="logout()">Esci</button>
+    <div class="azioni">
+      <button class="cloud" onclick="avviaRipristino()">☁️ Ripristina da MEGA</button>
+      <button class="gray" onclick="logout()">Esci</button>
+    </div>
   </header>
   <main>
+
+    <!-- AVANZAMENTO RIPRISTINO -->
+    <div id="ripristino" class="card" style="display:none">
+      <h2 style="margin-top:0;font-size:1.05rem">☁️ Ripristino dal backup MEGA</h2>
+      <p id="msg-ripristino">Avvio…</p>
+      <p class="muted">Puoi lasciare aperta questa pagina: lo stato si aggiorna da solo ogni 2 secondi.</p>
+    </div>
+
     <div class="card">
       <h2 style="margin-top:0;font-size:1.1rem">Nuovo evento</h2>
       <input id="nome" placeholder="Nome evento (es. Matrimonio Rossi)">
@@ -71,6 +85,7 @@
         <tbody id="righe"></tbody>
       </table>
       <p class="muted">💡 Clicca su un QR per ingrandirlo • La qualità si applica alle foto inviate da quel momento in poi.</p>
+      <p class="muted">☁️ Ogni foto e un riepilogo del database vengono copiati automaticamente su MEGA. Se il server perde i dati, premi «Ripristina da MEGA».</p>
     </div>
   </main>
 </div>
@@ -85,7 +100,6 @@
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const NOMI_QUALITA = { risparmio:'🟢 1280 px', standard:'🔵 1920 px', massima:'🔴 4000 px' };
 
 async function login() {
   const r = await fetch('/admin/login', { method:'POST',
@@ -143,8 +157,33 @@ async function cambiaQualita(id, qualita) {
 
 async function toggle(id) { await fetch(`/api/eventi/${id}/toggle`, { method:'POST' }); carica(); }
 async function elimina(id) {
-  if (!confirm('Eliminare definitivamente questo evento? Verranno cancellate anche le sue foto.')) return;
+  if (!confirm('Eliminare definitivamente questo evento? Verranno cancellate anche le sue foto (anche dal backup MEGA).')) return;
   await fetch(`/api/eventi/${id}`, { method:'DELETE' }); carica();
+}
+
+// --- RIPRISTINO DA MEGA ---
+let timerRipristino = null;
+async function avviaRipristino() {
+  if (!confirm('Ripristinare eventi e foto dal backup MEGA?\n\n' +
+      'Operazione SICURA: ciò che esiste già sul server non viene toccato, ' +
+      'vengono solo riaggiunti gli elementi mancanti.')) return;
+  const r = await fetch('/admin/ripristino', { method: 'POST' });
+  const d = await r.json();
+  if (!r.ok) return alert(d.errore || 'Errore avvio ripristino');
+  $('#ripristino').style.display = 'block';
+  clearInterval(timerRipristino);
+  timerRipristino = setInterval(statoRipristino, 2000);
+  statoRipristino();
+}
+async function statoRipristino() {
+  try {
+    const s = await (await fetch('/admin/stato-ripristino')).json();
+    $('#msg-ripristino').textContent = s.messaggio || '';
+    if (!s.in_corso) {
+      clearInterval(timerRipristino);
+      carica(); // aggiorna i contatori della tabella
+    }
+  } catch (e) {}
 }
 
 fetch('/api/eventi').then(r => { if (r.ok) entra(); });
