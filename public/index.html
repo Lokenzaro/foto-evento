@@ -3,217 +3,190 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Foto dell'evento</title>
+<title>Admin – Foto Evento</title>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;800&display=swap" rel="stylesheet">
 <style>
-  * { box-sizing: border-box; font-family: system-ui, sans-serif; }
-  body { margin: 0; background: #1a1a2e; color: #fff; min-height: 100vh; }
-  .contenitore { max-width: 480px; margin: 0 auto; padding: 1rem; }
-  .card { background: #16213e; border-radius: 16px; padding: 1.5rem; }
-  h1 { margin: 0 0 .3rem; font-size: 1.4rem; text-align: center; }
-  .evento { color: #e94560; font-weight: bold; text-align: center; margin: 0 0 1rem; }
-  input[type="text"] { width: 100%; padding: .7rem; border-radius: 8px; border: 1px solid #334;
-    background: #0f3460; color: #fff; font-size: 1rem; margin-bottom: .7rem; }
-  .riga { display: flex; gap: .6rem; }
-  .bottone { flex: 1; padding: .8rem; font-size: 1rem; border: none; border-radius: 10px;
-    cursor: pointer; background: #0f3460; color: #fff; }
-  .bottone.principale { background: #e94560; width: 100%; flex: none;
-    padding: .9rem; font-size: 1.05rem; margin-top: .7rem; }
-  .bottone:disabled { opacity: .5; cursor: default; }
-  #griglia { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; margin: .8rem 0; }
-  #griglia:empty { display: none; }
-  .mini { position: relative; aspect-ratio: 1; border-radius: 8px; overflow: hidden; }
-  .mini img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .mini .elimina { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px;
-    border: none; border-radius: 50%; background: rgba(0,0,0,.65); color: #fff;
-    font-size: .8rem; cursor: pointer; }
-  #stato { text-align: center; min-height: 1.4em; margin: .5rem 0 0; font-size: .95rem; }
-  .link-galleria { display: block; text-align: center; color: #7dd3fc; margin: 1rem 0 2rem; }
-  /* mirino fotocamera a schermo intero */
-  #camera { display: none; position: fixed; inset: 0; background: #000; z-index: 100;
-    flex-direction: column; }
-  #video { flex: 1; width: 100%; object-fit: contain; min-height: 0; }
-  #msg-scatto { text-align: center; color: #8f8; height: 1.4em; margin: .3rem 0 0; }
-  .controlli { display: flex; justify-content: space-around; align-items: center; padding: 1rem 0 1.4rem; }
-  .controlli button { border: none; border-radius: 50%; cursor: pointer; }
-  #scatta { width: 72px; height: 72px; background: #e94560; font-size: 1.8rem; }
-  .piccolo { width: 52px; height: 52px; background: #16213e; color: #fff; font-size: 1.3rem; }
+  * { box-sizing: border-box; font-family: 'Sora', system-ui, sans-serif; }
+  body { margin: 0; background: #0b1020; color: #e2e8f0;
+    background-image: radial-gradient(60% 45% at 15% 0%, rgba(124,58,237,.30), transparent 60%),
+      radial-gradient(50% 40% at 90% 10%, rgba(236,72,153,.20), transparent 60%);
+    background-attachment: fixed; }
+  header { background: rgba(255,255,255,.05); border-bottom: 1px solid rgba(255,255,255,.1);
+    padding: 1rem 1.5rem; display: flex; justify-content: space-between; align-items: center; }
+  header h1 { margin: 0; font-size: 1.3rem; font-weight: 800;
+    background: linear-gradient(90deg, #a78bfa, #f472b6);
+    -webkit-background-clip: text; background-clip: text; color: transparent; }
+  header .azioni { display: flex; gap: .5rem; }
+  main { max-width: 1050px; margin: 1.5rem auto; padding: 0 1rem; }
+  .card { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12);
+    border-radius: 18px; padding: 1.25rem; margin-bottom: 1.5rem; }
+  input, select, button { font-size: .95rem; padding: .6rem .8rem; border-radius: 10px;
+    border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.08); color: #fff; }
+  select option { color: #000; }
+  button { background: linear-gradient(90deg, #7c3aed, #ec4899); border: none; cursor: pointer; font-weight: 600; }
+  button:hover { filter: brightness(1.1); }
+  button.danger { background: #dc2626; }
+  button.gray { background: rgba(255,255,255,.15); }
+  button.teal { background: linear-gradient(90deg, #0d9488, #22d3ee); }
+  button.cloud { background: linear-gradient(90deg, #d97706, #fbbf24); }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: .6rem; text-align: left; border-bottom: 1px solid rgba(255,255,255,.08); vertical-align: middle; }
+  img.qr { width: 90px; height: 90px; cursor: zoom-in; border-radius: 8px; background: #fff; padding: 4px; }
+  .badge { padding: .2rem .6rem; border-radius: 99px; font-size: .78rem; }
+  .on { background: rgba(34,197,94,.2); color: #4ade80; }
+  .off { background: rgba(239,68,68,.2); color: #f87171; }
+  #login { max-width: 360px; margin: 4rem auto; }
+  #login input { width: 100%; margin-bottom: .7rem; }
+  .muted { color: #94a3b8; font-size: .82rem; }
+  #msg-ripristino { margin: .3rem 0 0; font-size: .95rem; }
 </style>
 </head>
 <body>
-<div class="contenitore">
-  <div class="card">
-    <h1>📸 Condividi le tue foto</h1>
-    <p class="evento" id="nome-evento">Caricamento…</p>
 
-    <input type="text" id="nome" placeholder="Il tuo nome (facoltativo)" maxlength="50">
-
-    <div id="griglia"></div>
-
-    <div class="riga">
-      <button class="bottone" onclick="apriCamera()">📷 Scatta una foto</button>
-      <button class="bottone" onclick="document.getElementById('file').click()">🖼️ Dal telefono</button>
-    </div>
-    <input type="file" id="file" accept="image/*" multiple hidden>
-
-    <button class="bottone principale" id="invia" onclick="invia()" disabled>🚀 Invia le foto</button>
-    <p id="stato"></p>
-  </div>
-  <a class="link-galleria" id="link-galleria" href="#">🖼️ Vedi la galleria dell'evento →</a>
+<div id="login" class="card">
+  <h2 style="margin-top:0">🔐 Accesso organizzatore</h2>
+  <input type="password" id="pw" placeholder="Password admin"
+         onkeydown="if(event.key==='Enter')login()">
+  <button onclick="login()" style="width:100%">Entra</button>
 </div>
 
-<!-- MIRINO FOTOCAMERA -->
-<div id="camera">
-  <video id="video" autoplay muted playsinline></video>
-  <p id="msg-scatto"></p>
-  <div class="controlli">
-    <button class="piccolo" onclick="cambiaCamera()" title="Cambia fotocamera">🔄</button>
-    <button id="scatta" onclick="scatta()" title="Scatta">📷</button>
-    <button class="piccolo" onclick="chiudiCamera()" title="Chiudi">✕</button>
-  </div>
+<div id="pannello" style="display:none">
+  <header>
+    <h1>📸 Gestione Eventi</h1>
+    <div class="azioni">
+      <button class="cloud" onclick="avviaRipristino()">☁️ Ripristina da MEGA</button>
+      <button class="gray" onclick="logout()">Esci</button>
+    </div>
+  </header>
+  <main>
+
+    <!-- AVANZAMENTO RIPRISTINO -->
+    <div id="ripristino" class="card" style="display:none">
+      <h2 style="margin-top:0;font-size:1.05rem">☁️ Ripristino dal backup MEGA</h2>
+      <p id="msg-ripristino">Avvio…</p>
+      <p class="muted">Puoi lasciare aperta questa pagina: lo stato si aggiorna da solo ogni 2 secondi.</p>
+    </div>
+
+    <div class="card">
+      <h2 style="margin-top:0;font-size:1.1rem">Nuovo evento</h2>
+      <input id="nome" placeholder="Nome evento (es. Matrimonio Rossi)">
+      <input id="data" type="date">
+      <select id="qualita">
+        <option value="risparmio">🟢 Risparmio dati (1280 px)</option>
+        <option value="standard" selected>🔵 Standard (1920 px)</option>
+        <option value="massima">🔴 Massima qualità (4000 px)</option>
+      </select>
+      <button onclick="crea()">➕ Crea evento e QR code</button>
+    </div>
+
+    <div class="card">
+      <table>
+        <thead><tr><th>Evento</th><th>Data</th><th>Foto</th><th>Stato</th><th>Qualità</th><th>QR</th><th>Azioni</th></tr></thead>
+        <tbody id="righe"></tbody>
+      </table>
+      <p class="muted">💡 Clicca su un QR per ingrandirlo • La qualità si applica alle foto inviate da quel momento in poi.</p>
+      <p class="muted">☁️ Ogni foto e un riepilogo del database vengono copiati automaticamente su MEGA. Se il server perde i dati, premi «Ripristina da MEGA».</p>
+    </div>
+  </main>
+</div>
+
+<div id="lightbox" onclick="this.style.display='none'"
+     style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.92); z-index:50;
+            flex-direction:column; align-items:center; justify-content:center; gap:1rem; cursor:pointer;">
+  <img id="bigqr" style="max-width:80vmin; background:#fff; padding:14px; border-radius:14px;">
+  <p style="color:#fff">Tocca per chiudere</p>
 </div>
 
 <script>
-const token = location.pathname.split('/')[2];
-const stato = document.getElementById('stato');
-const inAttesa = [];   // foto scattate/selezionate, non ancora inviate
+const $ = s => document.querySelector(s);
+const esc = s => s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-document.getElementById('link-galleria').href = '/galleria/' + token;
+async function login() {
+  const r = await fetch('/admin/login', { method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify({ password: $('#pw').value }) });
+  if (r.ok) entra(); else alert('Password errata');
+}
+async function logout() { await fetch('/admin/logout', { method:'POST' }); location.reload(); }
+function entra() { $('#login').style.display='none'; $('#pannello').style.display='block'; carica(); }
 
-fetch('/api/evento/' + token)
-  .then(r => { if (!r.ok) throw new Error(); return r.json(); })
-  .then(d => document.getElementById('nome-evento').textContent = d.nome)
-  .catch(() => {});
-
-// ---------- SELEZIONE DAL TELEFONO (multipla) ----------
-document.getElementById('file').addEventListener('change', e => {
-  for (const f of e.target.files) aggiungiFile(f);
-  e.target.value = ''; // permette di riselezionare gli stessi file
-});
-
-function aggiungiFile(file) {
-  if (!file || !file.type.startsWith('image/')) return;
-  inAttesa.push(file);
-  disegnaGriglia();
+async function carica() {
+  const eventi = await (await fetch('/api/eventi')).json();
+  $('#righe').innerHTML = eventi.map(e => `
+    <tr>
+      <td><strong>${esc(e.nome)}</strong><br><span class="muted">/e/${e.token}</span></td>
+      <td>${e.data_evento || '—'}</td>
+      <td><strong>${e.num_foto}</strong></td>
+      <td><span class="badge ${e.attivo ? 'on' : 'off'}">${e.attivo ? 'Attivo' : 'Chiuso'}</span></td>
+      <td>
+        <select onchange="cambiaQualita(${e.id}, this.value)">
+          <option value="risparmio" ${e.qualita==='risparmio'?'selected':''}>🟢 1280 px</option>
+          <option value="standard"  ${e.qualita==='standard' || !e.qualita ?'selected':''}>🔵 1920 px</option>
+          <option value="massima"   ${e.qualita==='massima'?'selected':''}>🔴 4000 px</option>
+        </select>
+      </td>
+      <td><img class="qr" src="/qr/${e.token}" onclick="mostraQR('${e.token}')"></td>
+      <td>
+        <button onclick="copia('${e.link}')">📋</button>
+        <button onclick="scaricaQR('${e.token}')">⬇️</button>
+        <button class="teal" onclick="galleria('${e.token}')">🖼️</button>
+        <button class="gray" onclick="toggle(${e.id})">${e.attivo ? '🔒' : '🔓'}</button>
+        <button class="danger" onclick="elimina(${e.id})">🗑️</button>
+      </td>
+    </tr>`).join('');
 }
 
-function disegnaGriglia() {
-  const g = document.getElementById('griglia');
-  g.innerHTML = '';
-  inAttesa.forEach((file, i) => {
-    const div = document.createElement('div');
-    div.className = 'mini';
-    const img = document.createElement('img');
-    img.src = URL.createObjectURL(file);
-    const x = document.createElement('button');
-    x.className = 'elimina';
-    x.textContent = '✕';
-    x.onclick = () => { inAttesa.splice(i, 1); disegnaGriglia(); };
-    div.append(img, x);
-    g.append(div);
-  });
-  const b = document.getElementById('invia');
-  b.disabled = inAttesa.length === 0;
-  b.textContent = inAttesa.length ? `🚀 Invia ${inAttesa.length} foto` : '🚀 Invia le foto';
+function mostraQR(t) { $('#bigqr').src = `/qr/${t}`; $('#lightbox').style.display = 'flex'; }
+function scaricaQR(t) { const a = document.createElement('a'); a.href = `/qr/${t}`; a.download = `qr-${t}.png`; a.click(); }
+function copia(l) { navigator.clipboard.writeText(l); alert('Link copiato:\n' + l); }
+function galleria(t) { window.open('/galleria/' + t, '_blank'); }
+
+async function crea() {
+  const r = await fetch('/api/eventi', { method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ nome: $('#nome').value, data_evento: $('#data').value, qualita: $('#qualita').value }) });
+  const d = await r.json();
+  if (!r.ok) return alert(d.errore);
+  $('#nome').value = ''; $('#data').value = '';
+  carica();
 }
 
-// ---------- FOTOCAMERA REALE (getUserMedia) ----------
-let stream = null, facing = 'environment';
+async function cambiaQualita(id, qualita) {
+  await fetch(`/api/eventi/${id}/qualita`, { method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify({ qualita }) });
+}
 
-async function apriCamera() {
+async function toggle(id) { await fetch(`/api/eventi/${id}/toggle`, { method:'POST' }); carica(); }
+async function elimina(id) {
+  if (!confirm('Eliminare definitivamente questo evento? Verranno cancellate anche le sue foto (anche dal backup MEGA).')) return;
+  await fetch(`/api/eventi/${id}`, { method:'DELETE' }); carica();
+}
+
+// --- RIPRISTINO DA MEGA ---
+let timerRipristino = null;
+async function avviaRipristino() {
+  if (!confirm('Ripristinare eventi e foto dal backup MEGA?\n\n' +
+      'Operazione SICURA: ciò che esiste già sul server non viene toccato, ' +
+      'vengono solo riaggiunti gli elementi mancanti.')) return;
+  const r = await fetch('/admin/ripristino', { method: 'POST' });
+  const d = await r.json();
+  if (!r.ok) return alert(d.errore || 'Errore avvio ripristino');
+  $('#ripristino').style.display = 'block';
+  clearInterval(timerRipristino);
+  timerRipristino = setInterval(statoRipristino, 2000);
+  statoRipristino();
+}
+async function statoRipristino() {
   try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1920 } },
-      audio: false
-    });
-    document.getElementById('video').srcObject = stream;
-    document.getElementById('camera').style.display = 'flex';
-  } catch (e) {
-    alert('Impossibile accedere alla fotocamera.\n\nControlla di aver dato il permesso al browser.');
-  }
+    const s = await (await fetch('/admin/stato-ripristino')).json();
+    $('#msg-ripristino').textContent = s.messaggio || '';
+    if (!s.in_corso) {
+      clearInterval(timerRipristino);
+      carica(); // aggiorna i contatori della tabella
+    }
+  } catch (e) {}
 }
 
-function chiudiCamera() {
-  if (stream) stream.getTracks().forEach(t => t.stop());
-  stream = null;
-  document.getElementById('camera').style.display = 'none';
-  document.getElementById('msg-scatto').textContent = '';
-}
-
-async function cambiaCamera() {
-  facing = facing === 'environment' ? 'user' : 'environment';
-  if (stream) stream.getTracks().forEach(t => t.stop());
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing }, audio: false });
-    document.getElementById('video').srcObject = stream;
-  } catch (e) { /* fotocamera assente: resta quella attuale */ }
-}
-
-function scatta() {
-  const video = document.getElementById('video');
-  if (!video.videoWidth) return;
-  const c = document.createElement('canvas');
-  c.width = video.videoWidth;
-  c.height = video.videoHeight;
-  c.getContext('2d').drawImage(video, 0, 0);
-  c.toBlob(blob => {
-    aggiungiFile(new File([blob], 'scatto.jpg', { type: 'image/jpeg' }));
-    document.getElementById('msg-scatto').textContent =
-      `✅ Foto aggiunta (${inAttesa.length} in totale)`;
-    setTimeout(() => document.getElementById('msg-scatto').textContent = '', 1500);
-  }, 'image/jpeg', 0.9);
-}
-
-// ---------- COMPRESSIONE (invii più veloci) ----------
-function comprimi(file) {
-  if (file.size < 300 * 1024) return Promise.resolve(file); // già piccola
-  return new Promise(ok => {
-    const img = new Image();
-    img.onload = () => {
-      const MAX = 1920;
-      let w = img.naturalWidth, h = img.naturalHeight;
-      if (Math.max(w, h) > MAX) {
-        const s = MAX / Math.max(w, h);
-        w = Math.round(w * s); h = Math.round(h * s);
-      }
-      const c = document.createElement('canvas');
-      c.width = w; c.height = h;
-      c.getContext('2d').drawImage(img, 0, 0, w, h);
-      c.toBlob(b => {
-        URL.revokeObjectURL(img.src);
-        ok(b ? new File([b], 'foto.jpg', { type: 'image/jpeg' }) : file);
-      }, 'image/jpeg', 0.85);
-    };
-    img.onerror = () => ok(file);
-    img.src = URL.createObjectURL(file);
-  });
-}
-
-// ---------- INVIO ----------
-async function invia() {
-  if (!inAttesa.length) return;
-  const bottone = document.getElementById('invia');
-  bottone.disabled = true;
-  const nome = document.getElementById('nome').value.trim() || 'Invitato';
-  let inviate = 0;
-
-  for (let i = 0; i < inAttesa.length; i++) {
-    stato.textContent = `📤 Invio foto ${i + 1} di ${inAttesa.length}…`;
-    const file = await comprimi(inAttesa[i]);
-    const dati = new FormData();
-    dati.append('token', token);
-    dati.append('nome', nome);
-    dati.append('foto', file);
-    try {
-      const r = await fetch('/upload', { method: 'POST', body: dati });
-      if (r.ok) inviate++;
-    } catch (e) {}
-  }
-
-  stato.textContent = `✅ Grazie! Inviate ${inviate} foto su ${inAttesa.length}`;
-  inAttesa.length = 0;
-  disegnaGriglia();
-  bottone.disabled = false;
-}
+fetch('/api/eventi').then(r => { if (r.ok) entra(); });
 </script>
 </body>
 </html>

@@ -4,96 +4,97 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Admin – Foto Evento</title>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;800&display=swap" rel="stylesheet">
 <style>
-  * { box-sizing: border-box; font-family: system-ui, sans-serif; }
-  body { margin: 0; background: #f4f5f7; color: #222; }
-  header { background: #1a1a2e; color: #fff; padding: 1rem 1.5rem;
-           display: flex; justify-content: space-between; align-items: center; }
-  main { max-width: 1000px; margin: 1.5rem auto; padding: 0 1rem; }
-  .card { background: #fff; border-radius: 12px; padding: 1.25rem;
-          box-shadow: 0 1px 4px rgba(0,0,0,.08); margin-bottom: 1.5rem; }
-  input, button { font-size: 1rem; padding: .6rem .8rem; border-radius: 8px; border: 1px solid #ccc; }
-  button { background: #4f46e5; color: #fff; border: none; cursor: pointer; }
-  button:hover { filter: brightness(.9); }
+  * { box-sizing: border-box; font-family: 'Sora', system-ui, sans-serif; }
+  body { margin: 0; background: #0b1020; color: #e2e8f0;
+    background-image: radial-gradient(60% 45% at 15% 0%, rgba(124,58,237,.30), transparent 60%),
+      radial-gradient(50% 40% at 90% 10%, rgba(236,72,153,.20), transparent 60%);
+    background-attachment: fixed; }
+  header { background: rgba(255,255,255,.05); border-bottom: 1px solid rgba(255,255,255,.1);
+    padding: 1rem 1.5rem; display: flex; justify-content: space-between; align-items: center; }
+  header h1 { margin: 0; font-size: 1.3rem; font-weight: 800;
+    background: linear-gradient(90deg, #a78bfa, #f472b6);
+    -webkit-background-clip: text; background-clip: text; color: transparent; }
+  main { max-width: 1050px; margin: 1.5rem auto; padding: 0 1rem; }
+  .card { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12);
+    border-radius: 18px; padding: 1.25rem; margin-bottom: 1.5rem; }
+  input, select, button { font-size: .95rem; padding: .6rem .8rem; border-radius: 10px;
+    border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.08); color: #fff; }
+  select option { color: #000; }
+  button { background: linear-gradient(90deg, #7c3aed, #ec4899); border: none; cursor: pointer; font-weight: 600; }
+  button:hover { filter: brightness(1.1); }
   button.danger { background: #dc2626; }
-  button.gray { background: #6b7280; }
-  button.teal { background: #0d9488; }
+  button.gray { background: rgba(255,255,255,.15); }
+  button.teal { background: linear-gradient(90deg, #0d9488, #22d3ee); }
   table { width: 100%; border-collapse: collapse; }
-  th, td { padding: .6rem; text-align: left; border-bottom: 1px solid #eee; vertical-align: middle; }
-  img.qr { width: 90px; height: 90px; cursor: zoom-in; border-radius: 6px; }
-  .badge { padding: .2rem .6rem; border-radius: 99px; font-size: .8rem; }
-  .on { background: #dcfce7; color: #166534; }
-  .off { background: #fee2e2; color: #991b1b; }
+  th, td { padding: .6rem; text-align: left; border-bottom: 1px solid rgba(255,255,255,.08); vertical-align: middle; }
+  img.qr { width: 90px; height: 90px; cursor: zoom-in; border-radius: 8px; background: #fff; padding: 4px; }
+  .badge { padding: .2rem .6rem; border-radius: 99px; font-size: .78rem; }
+  .on { background: rgba(34,197,94,.2); color: #4ade80; }
+  .off { background: rgba(239,68,68,.2); color: #f87171; }
   #login { max-width: 360px; margin: 4rem auto; }
-  .muted { color: #6b7280; font-size: .85rem; }
+  #login input { width: 100%; margin-bottom: .7rem; }
+  .muted { color: #94a3b8; font-size: .82rem; }
 </style>
 </head>
 <body>
 
-<!-- SCHERMATA DI LOGIN -->
 <div id="login" class="card">
-  <h2>🔐 Accesso organizzatore</h2>
+  <h2 style="margin-top:0">🔐 Accesso organizzatore</h2>
   <input type="password" id="pw" placeholder="Password admin"
-         style="width:100%; margin-bottom:.7rem"
          onkeydown="if(event.key==='Enter')login()">
   <button onclick="login()" style="width:100%">Entra</button>
 </div>
 
-<!-- PANNELLO PRINCIPALE -->
 <div id="pannello" style="display:none">
   <header>
-    <h1 style="margin:0">📸 Gestione Eventi</h1>
+    <h1>📸 Gestione Eventi</h1>
     <button class="gray" onclick="logout()">Esci</button>
   </header>
   <main>
-
-    <!-- Creazione nuovo evento -->
     <div class="card">
-      <h2 style="margin-top:0">Nuovo evento</h2>
+      <h2 style="margin-top:0;font-size:1.1rem">Nuovo evento</h2>
       <input id="nome" placeholder="Nome evento (es. Matrimonio Rossi)">
       <input id="data" type="date">
+      <select id="qualita">
+        <option value="risparmio">🟢 Risparmio dati (1280 px)</option>
+        <option value="standard" selected>🔵 Standard (1920 px)</option>
+        <option value="massima">🔴 Massima qualità (4000 px)</option>
+      </select>
       <button onclick="crea()">➕ Crea evento e QR code</button>
     </div>
 
-    <!-- Elenco eventi -->
     <div class="card">
       <table>
-        <thead>
-          <tr><th>Evento</th><th>Data</th><th>Foto</th><th>Stato</th><th>QR</th><th>Azioni</th></tr>
-        </thead>
+        <thead><tr><th>Evento</th><th>Data</th><th>Foto</th><th>Stato</th><th>Qualità</th><th>QR</th><th>Azioni</th></tr></thead>
         <tbody id="righe"></tbody>
       </table>
-      <p class="muted">💡 Clicca su un QR per ingrandirlo a schermo intero (utile per proiettarlo o stamparlo).</p>
-      <p class="muted">🖼️ «Galleria» apre la pagina live con le foto che arrivano dagli invitati in tempo reale: puoi proiettarla durante l'evento.</p>
+      <p class="muted">💡 Clicca su un QR per ingrandirlo • La qualità si applica alle foto inviate da quel momento in poi.</p>
     </div>
-
   </main>
 </div>
 
-<!-- LIGHTBOX: QR INGRANDITO -->
 <div id="lightbox" onclick="this.style.display='none'"
      style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.92); z-index:50;
             flex-direction:column; align-items:center; justify-content:center; gap:1rem; cursor:pointer;">
   <img id="bigqr" style="max-width:80vmin; background:#fff; padding:14px; border-radius:14px;">
-  <p style="color:#fff">Tocca per chiudere • Per salvare: tieni premuto (telefono) o tasto destro (PC)</p>
+  <p style="color:#fff">Tocca per chiudere</p>
 </div>
 
 <script>
 const $ = s => document.querySelector(s);
-// Impedisce che nomi di eventi con caratteri speciali rompano la tabella
 const esc = s => s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const NOMI_QUALITA = { risparmio:'🟢 1280 px', standard:'🔵 1920 px', massima:'🔴 4000 px' };
 
-// --- LOGIN / LOGOUT ---
 async function login() {
   const r = await fetch('/admin/login', { method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ password: $('#pw').value }) });
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify({ password: $('#pw').value }) });
   if (r.ok) entra(); else alert('Password errata');
 }
 async function logout() { await fetch('/admin/logout', { method:'POST' }); location.reload(); }
 function entra() { $('#login').style.display='none'; $('#pannello').style.display='block'; carica(); }
 
-// --- CARICA L'ELENCO EVENTI ---
 async function carica() {
   const eventi = await (await fetch('/api/eventi')).json();
   $('#righe').innerHTML = eventi.map(e => `
@@ -102,52 +103,50 @@ async function carica() {
       <td>${e.data_evento || '—'}</td>
       <td><strong>${e.num_foto}</strong></td>
       <td><span class="badge ${e.attivo ? 'on' : 'off'}">${e.attivo ? 'Attivo' : 'Chiuso'}</span></td>
+      <td>
+        <select onchange="cambiaQualita(${e.id}, this.value)">
+          <option value="risparmio" ${e.qualita==='risparmio'?'selected':''}>🟢 1280 px</option>
+          <option value="standard"  ${e.qualita==='standard' || !e.qualita ?'selected':''}>🔵 1920 px</option>
+          <option value="massima"   ${e.qualita==='massima'?'selected':''}>🔴 4000 px</option>
+        </select>
+      </td>
       <td><img class="qr" src="/qr/${e.token}" onclick="mostraQR('${e.token}')"></td>
       <td>
-        <button onclick="copia('${e.link}')">📋 Link</button>
-        <button onclick="scaricaQR('${e.token}')">⬇️ QR</button>
-        <button class="teal" onclick="galleria('${e.token}')">🖼️ Galleria</button>
-        <button onclick="toggle(${e.id})">${e.attivo ? '🔒 Chiudi' : '🔓 Apri'}</button>
+        <button onclick="copia('${e.link}')">📋</button>
+        <button onclick="scaricaQR('${e.token}')">⬇️</button>
+        <button class="teal" onclick="galleria('${e.token}')">🖼️</button>
+        <button class="gray" onclick="toggle(${e.id})">${e.attivo ? '🔒' : '🔓'}</button>
         <button class="danger" onclick="elimina(${e.id})">🗑️</button>
       </td>
     </tr>`).join('');
 }
 
-// --- AZIONI SUI QR CODE ---
-function mostraQR(token) {
-  $('#bigqr').src = `/qr/${token}`;
-  $('#lightbox').style.display = 'flex';
-}
-function scaricaQR(token) {
-  const a = document.createElement('a');
-  a.href = `/qr/${token}`;
-  a.download = `qr-${token}.png`;
-  a.click();
-}
-function copia(link) { navigator.clipboard.writeText(link); alert('Link copiato:\n' + link); }
-
-// --- GALLERIA LIVE (apre in una nuova scheda) ---
+function mostraQR(t) { $('#bigqr').src = `/qr/${t}`; $('#lightbox').style.display = 'flex'; }
+function scaricaQR(t) { const a = document.createElement('a'); a.href = `/qr/${t}`; a.download = `qr-${t}.png`; a.click(); }
+function copia(l) { navigator.clipboard.writeText(l); alert('Link copiato:\n' + l); }
 function galleria(t) { window.open('/galleria/' + t, '_blank'); }
 
-// --- CREAZIONE EVENTO ---
 async function crea() {
   const r = await fetch('/api/eventi', { method:'POST',
     headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ nome: $('#nome').value, data_evento: $('#data').value }) });
+    body: JSON.stringify({ nome: $('#nome').value, data_evento: $('#data').value, qualita: $('#qualita').value }) });
   const d = await r.json();
   if (!r.ok) return alert(d.errore);
   $('#nome').value = ''; $('#data').value = '';
   carica();
 }
 
-// --- APRI/CHIUDI ED ELIMINA ---
-async function toggle(id)  { await fetch(`/api/eventi/${id}/toggle`, { method:'POST' }); carica(); }
+async function cambiaQualita(id, qualita) {
+  await fetch(`/api/eventi/${id}/qualita`, { method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify({ qualita }) });
+}
+
+async function toggle(id) { await fetch(`/api/eventi/${id}/toggle`, { method:'POST' }); carica(); }
 async function elimina(id) {
   if (!confirm('Eliminare definitivamente questo evento? Verranno cancellate anche le sue foto.')) return;
   await fetch(`/api/eventi/${id}`, { method:'DELETE' }); carica();
 }
 
-// All'avvio: se la sessione è ancora attiva, entra direttamente
 fetch('/api/eventi').then(r => { if (r.ok) entra(); });
 </script>
 </body>
