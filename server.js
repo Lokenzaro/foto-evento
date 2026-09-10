@@ -1,7 +1,6 @@
 // ============================================================
-//  SERVER - App foto evento con QR code
-//  v4: backup completo su MEGA (foto + snapshot database)
-//      e ripristino con un click dal pannello admin
+//  SERVER - App foto evento con QR code — v4
+//  Admin + invitati + galleria live + backup/ripristino MEGA
 // ============================================================
 
 const express = require('express');
@@ -29,7 +28,7 @@ const PASSWORD_ADMIN = process.env.ADMIN_PASSWORD || 'admin123';
 const DATA_DIR = process.env.DATA_DIR || '.';
 const CARTELLA_FOTO = path.join(DATA_DIR, 'uploads');
 
-// --- DATABASE ---
+// ---------- DATABASE ----------
 const db = new Database(path.join(DATA_DIR, 'database.db'));
 db.exec(`
   CREATE TABLE IF NOT EXISTS eventi (
@@ -53,9 +52,7 @@ try { db.exec("ALTER TABLE eventi ADD COLUMN qualita TEXT DEFAULT 'standard'"); 
 fs.mkdirSync(CARTELLA_FOTO, { recursive: true });
 const caricamento = multer({ dest: CARTELLA_FOTO, limits: { fileSize: 20 * 1024 * 1024 } });
 
-// ------------------------------------------------------------
-// CONNESSIONE A MEGA (attiva solo con MEGA_EMAIL e MEGA_PASSWORD)
-// ------------------------------------------------------------
+// ---------- CONNESSIONE MEGA (opzionale) ----------
 let megaStorage = null;
 let megaPronto = false;
 if (process.env.MEGA_EMAIL && process.env.MEGA_PASSWORD) {
@@ -67,12 +64,11 @@ if (process.env.MEGA_EMAIL && process.env.MEGA_PASSWORD) {
       userAgent: 'foto-evento-app'
     }, (err) => {
       if (err) { console.error('☁️ MEGA: accesso fallito:', err.message); megaStorage = null; }
-      else { megaPronto = true; console.log('☁️ Backup MEGA collegato all\'account'); }
+      else { megaPronto = true; console.log("☁️ Backup MEGA collegato all'account"); }
     });
   } catch (e) { console.error('☁️ MEGA non disponibile:', e.message); }
 }
 
-// Copia di backup di una singola foto su MEGA
 function backupMega(percorsoFile, nomeSuMega) {
   if (!megaStorage || !megaPronto) return;
   try {
@@ -83,12 +79,7 @@ function backupMega(percorsoFile, nomeSuMega) {
   } catch (e) { console.error('☁️ Backup MEGA errore:', e.message); }
 }
 
-// ------------------------------------------------------------
-// SNAPSHOT DEL DATABASE SU MEGA
-// Un JSON minuscolo con TUTTI gli eventi e i record delle foto.
-// Viene salvato ~15 secondi dopo ogni modifica (con "debounce"
-// per non salvare 100 snapshot per 100 foto caricate di fila).
-// ------------------------------------------------------------
+// ---------- SNAPSHOT DATABASE SU MEGA (con debounce 15 s) ----------
 let snapshotTimer = null;
 function programmaSnapshot(ritardo = 15000) {
   if (!megaStorage) return;
@@ -112,9 +103,7 @@ function eseguiSnapshot() {
   } catch (e) { console.error('☁️ Snapshot errore:', e.message); }
 }
 
-// ------------------------------------------------------------
-// APP
-// ------------------------------------------------------------
+// ---------- APP ----------
 const app = express();
 app.use(express.json());
 app.use(session({
@@ -134,7 +123,7 @@ app.post('/admin/login', (req, res) => {
 });
 app.post('/admin/logout', (req, res) => req.session.destroy(() => res.json({ ok: true })));
 
-// --- API EVENTI (admin) ---
+// ---------- API EVENTI (solo admin) ----------
 app.get('/api/eventi', soloAdmin, (req, res) => {
   const eventi = db.prepare(`
     SELECT e.*, COUNT(f.id) AS num_foto
@@ -175,7 +164,6 @@ app.delete('/api/eventi/:id', soloAdmin, (req, res) => {
   if (ev) {
     const foto = db.prepare('SELECT filename FROM foto WHERE evento_token = ?').all(ev.token);
     for (const f of foto) { try { fs.unlinkSync(path.join(CARTELLA_FOTO, f.filename)); } catch (e) {} }
-    // prova a rimuovere dal cloud anche le copie MEGA di questo evento
     if (megaStorage && megaPronto) {
       Object.values(megaStorage.files || {}).forEach(f => {
         if (f.name && !f.isDirectory && f.name.startsWith(ev.token + '_')) {
@@ -190,7 +178,7 @@ app.delete('/api/eventi/:id', soloAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-// --- API PUBBLICHE (sola lettura) ---
+// ---------- API PUBBLICHE (sola lettura) ----------
 app.get('/api/evento/:token', (req, res) => {
   const ev = db.prepare('SELECT nome, qualita FROM eventi WHERE token = ? AND attivo = 1').get(req.params.token);
   if (!ev) return res.status(404).json({ errore: 'Evento non trovato o chiuso' });
@@ -206,9 +194,9 @@ app.get('/api/foto/:token', (req, res) => {
   res.json(foto.map(f => ({ ...f, url: '/foto/' + f.filename })));
 });
 
-app.use('/foto', express.static(CARTELLA_FOTO));
+app.use('/foto', express.static(CARTELLA_FOTO)); // sola lettura via web
 
-// --- QR CODE ---
+// ---------- QR CODE ----------
 app.get('/qr/:token', soloAdmin, async (req, res) => {
   const ev = db.prepare('SELECT token FROM eventi WHERE token = ?').get(req.params.token);
   if (!ev) return res.status(404).send('Non trovato');
@@ -216,7 +204,7 @@ app.get('/qr/:token', soloAdmin, async (req, res) => {
   res.type('image/png').send(png);
 });
 
-// --- PAGINE ---
+// ---------- PAGINE ----------
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
 app.get('/e/:token', (req, res) => {
   const ev = db.prepare('SELECT id FROM eventi WHERE token = ? AND attivo = 1').get(req.params.token);
@@ -229,7 +217,7 @@ app.get('/galleria/:token', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'galleria.html'));
 });
 
-// --- CARICAMENTO FOTO ---
+// ---------- CARICAMENTO FOTO ----------
 app.post('/upload', caricamento.single('foto'), (req, res) => {
   const ev = db.prepare('SELECT token FROM eventi WHERE token = ? AND attivo = 1').get(req.body.token);
   if (!ev) return res.status(403).json({ errore: 'Evento non valido o chiuso' });
@@ -240,9 +228,7 @@ app.post('/upload', caricamento.single('foto'), (req, res) => {
   res.json({ ok: true });
 });
 
-// ------------------------------------------------------------
-// RIPRISTINO DAL BACKUP MEGA (attivato dal pannello admin)
-// ------------------------------------------------------------
+// ---------- RIPRISTINO DAL BACKUP MEGA ----------
 const ripristino = { in_corso: false, messaggio: 'Mai avviato', eventi: 0, foto: 0, errori: 0, totale: 0 };
 
 app.post('/admin/ripristino', soloAdmin, (req, res) => {
@@ -313,7 +299,6 @@ function eseguiRipristino() {
   }
 }
 
-// Scarica da MEGA tutte le foto (nome: TOKEN_nomefile.jpg) mancanti sul disco
 function scaricaFoto(filesMega) {
   const fotoMega = filesMega.filter(f =>
     !f.name.startsWith('db-snapshot-') && /^[A-Za-z0-9_-]{8}_.+\.jpg$/.test(f.name)
@@ -335,7 +320,6 @@ function scaricaFoto(filesMega) {
     const token = m[1], filename = m[2];
     ripristino.messaggio = `Foto ${i} di ${ripristino.totale}…`;
 
-    // se l'evento non esiste (es. snapshot più vecchio), lo ricreo
     const evEsiste = db.prepare('SELECT id FROM eventi WHERE token = ?').get(token);
     if (!evEsiste) {
       db.prepare(`INSERT INTO eventi (token, nome, data_evento, qualita, attivo, creato_il)
@@ -347,7 +331,7 @@ function scaricaFoto(filesMega) {
     const registrata = db.prepare('SELECT id FROM foto WHERE evento_token = ? AND filename = ?')
       .get(token, filename);
     const percorsoLocale = path.join(CARTELLA_FOTO, filename);
-    if (registrata && fs.existsSync(percorsoLocale)) { prossima(); return; } // già presente
+    if (registrata && fs.existsSync(percorsoLocale)) { prossima(); return; }
 
     f.downloadBuffer((err, buffer) => {
       if (err) { ripristino.errori++; }

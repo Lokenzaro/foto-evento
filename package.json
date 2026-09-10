@@ -1,6 +1,6 @@
 {
   "name": "foto-evento",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "App per condividere le foto di un evento tramite QR code",
   "main": "server.js",
   "scripts": {

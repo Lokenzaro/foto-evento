@@ -1,20 +1,27 @@
 <!DOCTYPE html>
+<!-- ⬇️ GALLERIA LIVE (galleria.html) -->
 <html lang="it">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Galleria dell'evento</title>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;800&display=swap" rel="stylesheet">
 <style>
-  * { box-sizing: border-box; font-family: system-ui, sans-serif; }
-  body { margin: 0; background: #1a1a2e; color: #fff; }
+  * { box-sizing: border-box; font-family: 'Sora', system-ui, sans-serif; }
+  body { margin: 0; background: #0b1020; color: #fff;
+    background-image: radial-gradient(60% 45% at 15% 0%, rgba(124,58,237,.30), transparent 60%),
+      radial-gradient(50% 40% at 90% 10%, rgba(236,72,153,.20), transparent 60%);
+    background-attachment: fixed; }
   header { text-align: center; padding: 1.2rem .5rem .3rem; }
-  header h1 { margin: 0; font-size: 1.4rem; }
-  header p { margin: .2rem 0 0; color: #e94560; font-weight: bold; }
-  #conteggio { text-align: center; color: #99a; margin: .4rem 0 .8rem; }
+  header h1 { margin: 0; font-size: 1.4rem; font-weight: 800;
+    background: linear-gradient(90deg, #a78bfa, #f472b6);
+    -webkit-background-clip: text; background-clip: text; color: transparent; }
+  header p { margin: .2rem 0 0; color: #e94560; font-weight: 600; }
+  #conteggio { text-align: center; color: #94a3b8; margin: .4rem 0 .8rem; }
   #griglia { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
     gap: 6px; padding: 0 6px 24px; max-width: 1200px; margin: 0 auto; }
-  #griglia img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px;
-    cursor: zoom-in; background: #16213e; }
+  #griglia img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 10px;
+    cursor: zoom-in; background: rgba(255,255,255,.06); }
   #lightbox { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.95);
     z-index: 50; flex-direction: column; align-items: center; justify-content: center; }
   #lightbox img { max-width: 100%; max-height: 82vh; object-fit: contain; }
@@ -24,6 +31,7 @@
   #prec { left: 2px; }  #succ { right: 2px; }
   #chiudi { position: fixed; top: 10px; right: 14px; font-size: 1.7rem; background: none;
     border: none; color: #fff; cursor: pointer; z-index: 51; }
+  .tag-versione { text-align: center; padding-bottom: 1rem; font-size: .7rem; color: #475569; }
 </style>
 </head>
 <body>
@@ -33,6 +41,7 @@
 </header>
 <p id="conteggio"></p>
 <div id="griglia"></div>
+<p class="tag-versione">galleria · v4</p>
 
 <div id="lightbox" onclick="chiudi()">
   <button id="chiudi">✕</button>
@@ -52,10 +61,7 @@ fetch('/api/evento/' + token).then(r => r.ok ? r.json() : null)
 async function aggiorna() {
   try {
     foto = await (await fetch('/api/foto/' + token)).json();
-    if (foto.length !== ultimoNumero) {
-      ultimoNumero = foto.length;
-      disegna();
-    }
+    if (foto.length !== ultimoNumero) { ultimoNumero = foto.length; disegna(); }
     document.getElementById('conteggio').textContent =
       foto.length ? `${foto.length} foto condivise 🎉` : 'Nessuna foto ancora… aspetta i primi scatti!';
   } catch (e) {}
@@ -78,7 +84,8 @@ function chiudi() { document.getElementById('lightbox').style.display = 'none'; 
 function mostra() {
   const f = foto[indice];
   document.getElementById('grande').src = f.url;
-  const quando = new Date(f.caricata_il.replace(' ', 'T') + 'Z').toLocaleString('it-IT');
+  let quando = '';
+  try { quando = new Date(f.caricata_il.replace(' ', 'T') + 'Z').toLocaleString('it-IT'); } catch (e) {}
   document.getElementById('info').textContent = `📸 ${f.invitato || 'Invitato'} • ${quando}`;
 }
 function naviga(d) {
@@ -93,7 +100,7 @@ document.addEventListener('keydown', e => {
 });
 
 aggiorna();
-setInterval(aggiorna, 5000);   // 🔄 si aggiorna da sola ogni 5 secondi
+setInterval(aggiorna, 5000);
 </script>
 </body>
 </html>

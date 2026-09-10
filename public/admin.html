@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- ⬇️ PANNELLO ADMIN (admin.html) -->
 <html lang="it">
 <head>
 <meta charset="utf-8">
@@ -39,6 +40,7 @@
   #login input { width: 100%; margin-bottom: .7rem; }
   .muted { color: #94a3b8; font-size: .82rem; }
   #msg-ripristino { margin: .3rem 0 0; font-size: .95rem; }
+  .tag-versione { text-align: center; margin-top: 1.6rem; font-size: .7rem; color: #475569; }
 </style>
 </head>
 <body>
@@ -60,7 +62,6 @@
   </header>
   <main>
 
-    <!-- AVANZAMENTO RIPRISTINO -->
     <div id="ripristino" class="card" style="display:none">
       <h2 style="margin-top:0;font-size:1.05rem">☁️ Ripristino dal backup MEGA</h2>
       <p id="msg-ripristino">Avvio…</p>
@@ -88,6 +89,7 @@
       <p class="muted">☁️ Ogni foto e un riepilogo del database vengono copiati automaticamente su MEGA. Se il server perde i dati, premi «Ripristina da MEGA».</p>
     </div>
   </main>
+  <p class="tag-versione">pannello admin · v4</p>
 </div>
 
 <div id="lightbox" onclick="this.style.display='none'"
@@ -181,7 +183,7 @@ async function statoRipristino() {
     $('#msg-ripristino').textContent = s.messaggio || '';
     if (!s.in_corso) {
       clearInterval(timerRipristino);
-      carica(); // aggiorna i contatori della tabella
+      carica();
     }
   } catch (e) {}
 }
