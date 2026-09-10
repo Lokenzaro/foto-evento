@@ -103,6 +103,7 @@ async function carica() {
       <td><img class="qr" src="/qr/${e.token}" onclick="mostraQR('${e.token}')"></td>
       <td>
         <button onclick="copia('${e.link}')">📋 Link</button>
+		<button onclick="galleria('${e.token}')">🖼️ Galleria</button>
         <button onclick="scaricaQR('${e.token}')">⬇️ QR</button>
         <button onclick="toggle(${e.id})">${e.attivo ? '🔒 Chiudi' : '🔓 Apri'}</button>
         <button class="danger" onclick="elimina(${e.id})">🗑️</button>
@@ -122,7 +123,7 @@ function scaricaQR(token) {
   a.click();
 }
 function copia(link) { navigator.clipboard.writeText(link); alert('Link copiato:\n' + link); }
-
+function galleria(t) { window.open('/galleria/' + t, '_blank'); }
 // --- CREAZIONE EVENTO ---
 async function crea() {
   const r = await fetch('/api/eventi', { method:'POST',

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Galleria dell'evento</title>
+<style>
+  * { box-sizing: border-box; font-family: system-ui, sans-serif; }
+  body { margin: 0; background: #1a1a2e; color: #fff; }
+  header { text-align: center; padding: 1.2rem .5rem .3rem; }
+  header h1 { margin: 0; font-size: 1.4rem; }
+  header p { margin: .2rem 0 0; color: #e94560; font-weight: bold; }
+  #conteggio { text-align: center; color: #99a; margin: .4rem 0 .8rem; }
+  #griglia { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 6px; padding: 0 6px 24px; max-width: 1200px; margin: 0 auto; }
+  #griglia img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px;
+    cursor: zoom-in; background: #16213e; }
+  #lightbox { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.95);
+    z-index: 50; flex-direction: column; align-items: center; justify-content: center; }
+  #lightbox img { max-width: 100%; max-height: 82vh; object-fit: contain; }
+  #info { margin-top: .6rem; color: #ccc; font-size: .95rem; }
+  .nav { position: fixed; top: 50%; transform: translateY(-50%); font-size: 2.4rem;
+    background: none; border: none; color: #fff; cursor: pointer; padding: 1rem; z-index: 51; }
+  #prec { left: 2px; }  #succ { right: 2px; }
+  #chiudi { position: fixed; top: 10px; right: 14px; font-size: 1.7rem; background: none;
+    border: none; color: #fff; cursor: pointer; z-index: 51; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🖼️ Galleria live</h1>
+  <p id="nome-evento">…</p>
+</header>
+<p id="conteggio"></p>
+<div id="griglia"></div>
+
+<div id="lightbox" onclick="chiudi()">
+  <button id="chiudi">✕</button>
+  <button class="nav" id="prec" onclick="event.stopPropagation(); naviga(-1)">‹</button>
+  <img id="grande" src="" onclick="event.stopPropagation()">
+  <div id="info" onclick="event.stopPropagation()"></div>
+  <button class="nav" id="succ" onclick="event.stopPropagation(); naviga(1)">›</button>
+</div>
+
+<script>
+const token = location.pathname.split('/')[2];
+let foto = [], indice = 0, ultimoNumero = -1;
+
+fetch('/api/evento/' + token).then(r => r.ok ? r.json() : null)
+  .then(d => document.getElementById('nome-evento').textContent = d ? d.nome : '');
+
+async function aggiorna() {
+  try {
+    foto = await (await fetch('/api/foto/' + token)).json();
+    if (foto.length !== ultimoNumero) {
+      ultimoNumero = foto.length;
+      disegna();
+    }
+    document.getElementById('conteggio').textContent =
+      foto.length ? `${foto.length} foto condivise 🎉` : 'Nessuna foto ancora… aspetta i primi scatti!';
+  } catch (e) {}
+}
+
+function disegna() {
+  const g = document.getElementById('griglia');
+  g.innerHTML = '';
+  foto.forEach((f, i) => {
+    const img = document.createElement('img');
+    img.src = f.url;
+    img.loading = 'lazy';
+    img.onclick = () => apri(i);
+    g.append(img);
+  });
+}
+
+function apri(i) { indice = i; mostra(); document.getElementById('lightbox').style.display = 'flex'; }
+function chiudi() { document.getElementById('lightbox').style.display = 'none'; }
+function mostra() {
+  const f = foto[indice];
+  document.getElementById('grande').src = f.url;
+  const quando = new Date(f.caricata_il.replace(' ', 'T') + 'Z').toLocaleString('it-IT');
+  document.getElementById('info').textContent = `📸 ${f.invitato || 'Invitato'} • ${quando}`;
+}
+function naviga(d) {
+  if (!foto.length) return;
+  indice = (indice + d + foto.length) % foto.length;
+  mostra();
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') chiudi();
+  if (e.key === 'ArrowLeft') naviga(-1);
+  if (e.key === 'ArrowRight') naviga(1);
+});
+
+aggiorna();
+setInterval(aggiorna, 5000);   // 🔄 si aggiorna da sola ogni 5 secondi
+</script>
+</body>
+</html>
