@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Foto dell'evento</title>
+<style>
+  * { box-sizing: border-box; font-family: system-ui, sans-serif; }
+  body { margin: 0; background: #1a1a2e; color: #fff; min-height: 100vh;
+         display: flex; align-items: center; justify-content: center; }
+  .card { background: #16213e; border-radius: 16px; padding: 1.5rem;
+          width: 100%; max-width: 420px; margin: 1rem; text-align: center; }
+  h1 { margin: 0 0 .3rem; font-size: 1.5rem; }
+  .evento { color: #e94560; font-weight: bold; margin-bottom: 1.2rem; }
+  input[type="text"] { width: 100%; padding: .7rem; border-radius: 8px;
+    border: 1px solid #334; background: #0f3460; color: #fff;
+    margin-bottom: .7rem; font-size: 1rem; }
+  input[type="file"] { width: 100%; margin-bottom: .7rem; color: #ccd; }
+  button { width: 100%; padding: .9rem; font-size: 1.1rem; border: none;
+    border-radius: 10px; background: #e94560; color: #fff; cursor: pointer; }
+  button:disabled { opacity: .5; }
+  #stato { margin-top: .8rem; min-height: 1.4em; font-size: .95rem; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>📸 Condividi le tue foto</h1>
+  <p class="evento" id="nome-evento">Caricamento…</p>
+
+  <input type="text" id="nome" placeholder="Il tuo nome (facoltativo)" maxlength="50">
+  <input type="file" id="foto" accept="image/*" multiple>
+  <p style="font-size:.85rem;color:#99a">Puoi scattare una foto ora oppure scegliere quelle dalla galleria.</p>
+
+  <button id="bottone" onclick="invia()">🚀 Invia le foto</button>
+  <p id="stato"></p>
+</div>
+
+<script>
+// Il token dell'evento si trova nella URL: /e/TOKEN
+const token = location.pathname.split('/')[2];
+const stato = document.getElementById('stato');
+
+// Mostra il nome dell'evento in alto
+fetch('/api/evento/' + token)
+  .then(r => { if (!r.ok) throw new Error(); return r.json(); })
+  .then(d => document.getElementById('nome-evento').textContent = d.nome)
+  .catch(() => document.getElementById('nome-evento').textContent = 'Evento');
+
+async function invia() {
+  const file = document.getElementById('foto').files;
+  if (file.length === 0) {
+    stato.textContent = '⚠️ Seleziona almeno una foto';
+    return;
+  }
+
+  const bottone = document.getElementById('bottone');
+  bottone.disabled = true;
+
+  const nome = document.getElementById('nome').value.trim() || 'Invitato';
+  let inviate = 0;
+
+  // Invia le foto una alla volta, mostrando l'avanzamento
+  for (let i = 0; i < file.length; i++) {
+    stato.textContent = `Invio foto ${i + 1} di ${file.length}…`;
+    const dati = new FormData();
+    dati.append('token', token);
+    dati.append('nome', nome);
+    dati.append('foto', file[i]);
+    try {
+      const risposta = await fetch('/upload', { method: 'POST', body: dati });
+      if (risposta.ok) inviate++;
+    } catch (e) { /* passa alla foto successiva */ }
+  }
+
+  stato.textContent = `✅ Grazie! Inviate ${inviate} foto su ${file.length}`;
+  document.getElementById('foto').value = '';
+  bottone.disabled = false;
+}
+</script>
+</body>
+</html>

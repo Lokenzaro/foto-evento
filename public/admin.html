@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin – Foto Evento</title>
+<style>
+  * { box-sizing: border-box; font-family: system-ui, sans-serif; }
+  body { margin: 0; background: #f4f5f7; color: #222; }
+  header { background: #1a1a2e; color: #fff; padding: 1rem 1.5rem;
+           display: flex; justify-content: space-between; align-items: center; }
+  main { max-width: 1000px; margin: 1.5rem auto; padding: 0 1rem; }
+  .card { background: #fff; border-radius: 12px; padding: 1.25rem;
+          box-shadow: 0 1px 4px rgba(0,0,0,.08); margin-bottom: 1.5rem; }
+  input, button { font-size: 1rem; padding: .6rem .8rem; border-radius: 8px; border: 1px solid #ccc; }
+  button { background: #4f46e5; color: #fff; border: none; cursor: pointer; }
+  button:hover { filter: brightness(.9); }
+  button.danger { background: #dc2626; }
+  button.gray { background: #6b7280; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: .6rem; text-align: left; border-bottom: 1px solid #eee; vertical-align: middle; }
+  img.qr { width: 90px; height: 90px; cursor: zoom-in; border-radius: 6px; }
+  .badge { padding: .2rem .6rem; border-radius: 99px; font-size: .8rem; }
+  .on { background: #dcfce7; color: #166534; }
+  .off { background: #fee2e2; color: #991b1b; }
+  #login { max-width: 360px; margin: 4rem auto; }
+  .muted { color: #6b7280; font-size: .85rem; }
+</style>
+</head>
+<body>
+
+<!-- SCHERMATA DI LOGIN -->
+<div id="login" class="card">
+  <h2>🔐 Accesso organizzatore</h2>
+  <input type="password" id="pw" placeholder="Password admin"
+         style="width:100%; margin-bottom:.7rem"
+         onkeydown="if(event.key==='Enter')login()">
+  <button onclick="login()" style="width:100%">Entra</button>
+</div>
+
+<!-- PANNELLO PRINCIPALE -->
+<div id="pannello" style="display:none">
+  <header>
+    <h1 style="margin:0">📸 Gestione Eventi</h1>
+    <button class="gray" onclick="logout()">Esci</button>
+  </header>
+  <main>
+
+    <!-- Creazione nuovo evento -->
+    <div class="card">
+      <h2 style="margin-top:0">Nuovo evento</h2>
+      <input id="nome" placeholder="Nome evento (es. Matrimonio Rossi)">
+      <input id="data" type="date">
+      <button onclick="crea()">➕ Crea evento e QR code</button>
+    </div>
+
+    <!-- Elenco eventi -->
+    <div class="card">
+      <table>
+        <thead>
+          <tr><th>Evento</th><th>Data</th><th>Foto</th><th>Stato</th><th>QR</th><th>Azioni</th></tr>
+        </thead>
+        <tbody id="righe"></tbody>
+      </table>
+      <p class="muted">💡 Clicca su un QR per ingrandirlo a schermo intero (utile per proiettarlo o stamparlo).</p>
+    </div>
+
+  </main>
+</div>
+
+<!-- LIGHTBOX: QR INGRANDITO -->
+<div id="lightbox" onclick="this.style.display='none'"
+     style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.92); z-index:50;
+            flex-direction:column; align-items:center; justify-content:center; gap:1rem; cursor:pointer;">
+  <img id="bigqr" style="max-width:80vmin; background:#fff; padding:14px; border-radius:14px;">
+  <p style="color:#fff">Tocca per chiudere • Per salvare: tieni premuto (telefono) o tasto destro (PC)</p>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+// Protegge il pannello inserendo i nomi degli eventi nella tabella
+const esc = s => s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+// --- LOGIN / LOGOUT ---
+async function login() {
+  const r = await fetch('/admin/login', { method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ password: $('#pw').value }) });
+  if (r.ok) entra(); else alert('Password errata');
+}
+async function logout() { await fetch('/admin/logout', { method:'POST' }); location.reload(); }
+function entra() { $('#login').style.display='none'; $('#pannello').style.display='block'; carica(); }
+
+// --- CARICA L'ELENCO EVENTI ---
+async function carica() {
+  const eventi = await (await fetch('/api/eventi')).json();
+  $('#righe').innerHTML = eventi.map(e => `
+    <tr>
+      <td><strong>${esc(e.nome)}</strong><br><span class="muted">/e/${e.token}</span></td>
+      <td>${e.data_evento || '—'}</td>
+      <td><strong>${e.num_foto}</strong></td>
+      <td><span class="badge ${e.attivo ? 'on' : 'off'}">${e.attivo ? 'Attivo' : 'Chiuso'}</span></td>
+      <td><img class="qr" src="/qr/${e.token}" onclick="mostraQR('${e.token}')"></td>
+      <td>
+        <button onclick="copia('${e.link}')">📋 Link</button>
+        <button onclick="scaricaQR('${e.token}')">⬇️ QR</button>
+        <button onclick="toggle(${e.id})">${e.attivo ? '🔒 Chiudi' : '🔓 Apri'}</button>
+        <button class="danger" onclick="elimina(${e.id})">🗑️</button>
+      </td>
+    </tr>`).join('');
+}
+
+// --- AZIONI SUI QR CODE ---
+function mostraQR(token) {
+  $('#bigqr').src = `/qr/${token}`;
+  $('#lightbox').style.display = 'flex';
+}
+function scaricaQR(token) {
+  const a = document.createElement('a');
+  a.href = `/qr/${token}`;
+  a.download = `qr-${token}.png`;
+  a.click();
+}
+function copia(link) { navigator.clipboard.writeText(link); alert('Link copiato:\n' + link); }
+
+// --- CREAZIONE EVENTO ---
+async function crea() {
+  const r = await fetch('/api/eventi', { method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ nome: $('#nome').value, data_evento: $('#data').value }) });
+  const d = await r.json();
+  if (!r.ok) return alert(d.errore);
+  $('#nome').value = ''; $('#data').value = '';
+  carica();
+}
+
+// --- APRI/CHIUDI ED ELIMINA ---
+async function toggle(id)  { await fetch(`/api/eventi/${id}/toggle`, { method:'POST' }); carica(); }
+async function elimina(id) {
+  if (!confirm('Eliminare definitivamente questo evento?')) return;
+  await fetch(`/api/eventi/${id}`, { method:'DELETE' }); carica();
+}
+
+// All'avvio: se la sessione è ancora attiva, entra direttamente
+fetch('/api/eventi').then(r => { if (r.ok) entra(); });
+</script>
+</body>
+</html>
