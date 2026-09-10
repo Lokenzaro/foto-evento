@@ -17,6 +17,7 @@
   button:hover { filter: brightness(.9); }
   button.danger { background: #dc2626; }
   button.gray { background: #6b7280; }
+  button.teal { background: #0d9488; }
   table { width: 100%; border-collapse: collapse; }
   th, td { padding: .6rem; text-align: left; border-bottom: 1px solid #eee; vertical-align: middle; }
   img.qr { width: 90px; height: 90px; cursor: zoom-in; border-radius: 6px; }
@@ -63,6 +64,7 @@
         <tbody id="righe"></tbody>
       </table>
       <p class="muted">💡 Clicca su un QR per ingrandirlo a schermo intero (utile per proiettarlo o stamparlo).</p>
+      <p class="muted">🖼️ «Galleria» apre la pagina live con le foto che arrivano dagli invitati in tempo reale: puoi proiettarla durante l'evento.</p>
     </div>
 
   </main>
@@ -78,7 +80,7 @@
 
 <script>
 const $ = s => document.querySelector(s);
-// Protegge il pannello inserendo i nomi degli eventi nella tabella
+// Impedisce che nomi di eventi con caratteri speciali rompano la tabella
 const esc = s => s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 // --- LOGIN / LOGOUT ---
@@ -103,8 +105,8 @@ async function carica() {
       <td><img class="qr" src="/qr/${e.token}" onclick="mostraQR('${e.token}')"></td>
       <td>
         <button onclick="copia('${e.link}')">📋 Link</button>
-		<button onclick="galleria('${e.token}')">🖼️ Galleria</button>
         <button onclick="scaricaQR('${e.token}')">⬇️ QR</button>
+        <button class="teal" onclick="galleria('${e.token}')">🖼️ Galleria</button>
         <button onclick="toggle(${e.id})">${e.attivo ? '🔒 Chiudi' : '🔓 Apri'}</button>
         <button class="danger" onclick="elimina(${e.id})">🗑️</button>
       </td>
@@ -123,7 +125,10 @@ function scaricaQR(token) {
   a.click();
 }
 function copia(link) { navigator.clipboard.writeText(link); alert('Link copiato:\n' + link); }
+
+// --- GALLERIA LIVE (apre in una nuova scheda) ---
 function galleria(t) { window.open('/galleria/' + t, '_blank'); }
+
 // --- CREAZIONE EVENTO ---
 async function crea() {
   const r = await fetch('/api/eventi', { method:'POST',
@@ -138,7 +143,7 @@ async function crea() {
 // --- APRI/CHIUDI ED ELIMINA ---
 async function toggle(id)  { await fetch(`/api/eventi/${id}/toggle`, { method:'POST' }); carica(); }
 async function elimina(id) {
-  if (!confirm('Eliminare definitivamente questo evento?')) return;
+  if (!confirm('Eliminare definitivamente questo evento? Verranno cancellate anche le sue foto.')) return;
   await fetch(`/api/eventi/${id}`, { method:'DELETE' }); carica();
 }
 
