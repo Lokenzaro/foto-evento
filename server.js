@@ -115,7 +115,6 @@ function figliDi(cartella) {
   return nodiMega().filter(f => f && f.parentNodeId === cartella.nodeId && f.nodeId !== cartella.nodeId);
 }
 
-// ricarica l'indice completo dei nodi da MEGA
 function aggiornaIndice(cb) {
   try {
     if (typeof megaStorage.refresh === 'function') {
@@ -124,7 +123,6 @@ function aggiornaIndice(cb) {
   } catch (e) { cb(); }
 }
 
-// crea una cartella DENTRO il padre (metodo del nodo; fallback con parent)
 function creaCartellaDentro(padre, nome, cb) {
   const fatto = () => cb();
   try {
@@ -138,7 +136,6 @@ function creaCartellaDentro(padre, nome, cb) {
   }
 }
 
-// carica un file DENTRO la cartella (metodo del nodo; fallback in radice)
 function caricaInCartella(cartella, nome, buffer, cb) {
   const fine = (err) => cb && cb(err || null);
   try {
@@ -161,7 +158,6 @@ function pulisciNome(n) {
   return (n || 'Evento').replace(/[\/\\:<>"|?*\n\r]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60) || 'Evento';
 }
 
-// ---- /FOTO-EVENTI ----
 function trovaRadice() {
   const root = megaStorage.root;
   if (!root) return null;
@@ -187,7 +183,6 @@ function garantisciRadice(cb) {
   });
 }
 
-// ---- /FOTO-EVENTI/_sistema (+ pulizia duplicati vuoti v6.0) ----
 function garantisciSistema(cb) {
   if (megaCache.sistema) return cb(megaCache.sistema);
   garantisciRadice((radice) => {
@@ -199,18 +194,18 @@ function garantisciSistema(cb) {
         aggiornaIndice(() => {
           scelto = figliDi(radice).find(f => f.name === CART_SISTEMA) || null;
           megaCache.sistema = scelto;
-          if (scelto) pulisciDuplicatiSistema(radice, scelto);
+          if (scelto) pulisciDuplicatiSistema(scelto);
           cb(scelto);
         });
       });
     }
     megaCache.sistema = scelto;
-    pulisciDuplicatiSistema(radice, scelto);
+    pulisciDuplicatiSistema(scelto);
     cb(scelto);
   });
 }
 
-function pulisciDuplicatiSistema(radice, scelto) {
+function pulisciDuplicatiSistema(scelto) {
   nodiMega().forEach(f => {
     if (f.name === CART_SISTEMA && f.nodeId !== scelto.nodeId) {
       const vuota = (!Array.isArray(f.children) || f.children.length === 0) && figliDi(f).length === 0;
@@ -219,7 +214,6 @@ function pulisciDuplicatiSistema(radice, scelto) {
   });
 }
 
-// ---- cartella evento "Nome [TOKEN]" ----
 function trovaCartellaEvento(token) {
   const re = new RegExp('\\[' + token + '\\]$');
   if (megaCache.radice) {
@@ -246,7 +240,6 @@ function garantisciCartellaEvento(ev, cb) {
   });
 }
 
-// ---- backup di un media ----
 function backupMega(percorsoFile, nomeFile, ev) {
   if (!megaStorage || !megaPronto || !ev) return;
   try {
@@ -284,7 +277,7 @@ function eliminaCartellaEvento(token) {
   delete megaCache.eventi[token];
 }
 
-// ---------- SNAPSHOT SU MEGA (debounce 15 s, con retry se MEGA non pronto) ----------
+// ---------- SNAPSHOT SU MEGA (debounce 15 s, retry se MEGA non pronto) ----------
 let snapshotTimer = null;
 let snapshotInAttesa = false;
 function programmaSnapshot(ritardo = 15000) {
@@ -305,7 +298,6 @@ function pulisciVecchiFile(cartella, prefisso, daTenere) {
 function eseguiSnapshot() {
   if (!megaStorage) return;
   if (!megaPronto) {
-    // MEGA non ancora connesso: riprova (garantisce snapshot anche dopo cancellazioni immediate)
     if (!snapshotInAttesa) {
       snapshotInAttesa = true;
       setTimeout(() => { snapshotInAttesa = false; eseguiSnapshot(); }, 20000);
@@ -317,7 +309,6 @@ function eseguiSnapshot() {
     const foto = db.prepare('SELECT * FROM foto').all();
     const ts = Date.now();
 
-    // 1) snapshot globale → _sistema (ultimi 3)
     garantisciSistema((sistema) => {
       if (!sistema) return;
       const glob = JSON.stringify({ esportato_il: new Date(ts).toISOString(), eventi, foto });
@@ -330,7 +321,6 @@ function eseguiSnapshot() {
       });
     });
 
-    // 2) JSON dei dati di ogni evento → dentro la sua cartella (ultimi 2)
     for (const ev of eventi) {
       garantisciCartellaEvento(ev, (cartella) => {
         if (!cartella) return;
@@ -364,7 +354,6 @@ app.post('/admin/login', (req, res) => {
 });
 app.post('/admin/logout', (req, res) => req.session.destroy(() => res.json({ ok: true })));
 
-// ---------- API EVENTI (solo admin) ----------
 app.get('/api/eventi', soloAdmin, (req, res) => {
   const eventi = db.prepare(`
     SELECT e.*, COUNT(f.id) AS num_foto
@@ -456,7 +445,6 @@ app.delete('/api/eventi/:id', soloAdmin, (req, res) => {
   res.json({ ok: true, modo });
 });
 
-// ---------- API PUBBLICHE (sola lettura) ----------
 app.get('/api/evento/:token', (req, res) => {
   const ev = db.prepare('SELECT nome, qualita, sfondo FROM eventi WHERE token = ? AND attivo = 1')
     .get(req.params.token);
@@ -511,8 +499,6 @@ app.get('/admin/eventi-mega', soloAdmin, async (req, res) => {
   aggiornaIndice(() => {
     try {
       const lista = {};
-
-      // token che hanno DAVVERO contenuti su MEGA
       const conContenuto = new Set();
       for (const c of nodiMega()) {
         const m = c.name && c.name.match(/\[([A-Za-z0-9_-]{8})\]$/);
@@ -524,7 +510,6 @@ app.get('/admin/eventi-mega', soloAdmin, async (req, res) => {
       }
       if (!conContenuto.size) return res.json([]);
 
-      // nomi dallo snapshot più recente (solo per i token con contenuti)
       const meta = {};
       const snaps = nodiMega().filter(f => f.name && /^db-snapshot-\d+\.json$/.test(f.name))
         .sort((a, b) => a.name.localeCompare(b.name));
@@ -543,7 +528,6 @@ app.get('/admin/eventi-mega', soloAdmin, async (req, res) => {
         });
       });
 
-      // cartelle evento
       for (const c of nodiMega()) {
         const m = c.name && c.name.match(/\[([A-Za-z0-9_-]{8})\]$/);
         if (!m || !conContenuto.has(m[1])) continue;
@@ -558,7 +542,6 @@ app.get('/admin/eventi-mega', soloAdmin, async (req, res) => {
         lista[token].num_media = figliDi(c).filter(f => f.name &&
           !f.name.startsWith('sfondo') && !/^dati-\d+\.json$/.test(f.name)).length;
       }
-      // vecchi file piatti
       for (const f of nodiMega()) {
         const m = f.name && f.name.match(new RegExp(`^([A-Za-z0-9_-]{8})_.+\\.(${EST_MEDIA.join('|')})$`, 'i'));
         if (!m) continue;
