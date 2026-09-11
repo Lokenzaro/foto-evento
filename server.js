@@ -1,13 +1,10 @@
 // ============================================================
-//  SERVER - App foto/video evento con QR code — v6.6
+//  SERVER - App foto/video evento con QR code — v6.7
 //  MEGA: /FOTO-EVENTI/<Evento [TOKEN]>/
-//  - figliDi() via children/parent (campo megajs: "parent")
-//  - tipo media da mimetype + estensione
-//  - sweep video all'avvio: ripara tipi, converte HEVC/mov/webm,
-//    genera anteprime, backup MEGA del file finale
-//  - v6.6: dopo l'eliminazione definitiva di un evento, pulizia
-//    immediata dell'indice MEGA locale + refresh di conferma +
-//    filtro "cancellazioni recenti" nel dialogo di ripristino
+//  - v6.6: pulizia indice locale dopo eliminazione evento
+//  - v6.7: errori di connessione MEGA gestiti (no crash),
+//          riconnessione automatica, coda backup in attesa,
+//          rete di sicurezza globale sul processo
 // ============================================================
 
 const express = require('express');
@@ -21,7 +18,15 @@ const os = require('os');
 const { execFile } = require('child_process');
 const QRCode = require('qrcode');
 
-const VERSIONE = '6.6';
+const VERSIONE = '6.7';
+
+// ---------- RETE DI SICUREZZA: il server non deve mai morire ----------
+process.on('uncaughtException', (e) => {
+  console.error('⚠️ Errore non gestito (server tenuto in vita):', (e && e.stack) || e);
+});
+process.on('unhandledRejection', (e) => {
+  console.error('⚠️ Promise rifiutata non gestita (server tenuto in vita):', (e && (e.stack || e)) || e);
+});
 
 function rilevaIPLocale() {
   const interfacce = os.networkInterfaces();
@@ -46,7 +51,7 @@ const ESTENSIONI = {
 };
 const EST_MEDIA = ['jpg','jpeg','png','gif','webp','heic','heif','webm','mp4','mov','mkv','3gp'];
 const EST_VIDEO = ['.webm', '.mp4', '.mov', '.mkv', '.3gp'];
-const EST_VIDEO_IMG = /\.(mp4|webm|mov|mkv|3gp)\.jpg$/i;   // anteprime generate dal server
+const EST_VIDEO_IMG = /\.(mp4|webm|mov|mkv|3gp)\.jpg$/i;
 const E_VIDEO = (f) => EST_VIDEO.includes(path.extname(f || '').toLowerCase());
 
 let FFMPEG_PATH = null;
@@ -91,14 +96,32 @@ const caricamento = multer({ storage: storageMulter, limits: { fileSize: 100 * 1
 
 // ---------- STATO OPERAZIONI LUNGHE ----------
 const ripristino = { in_corso: false, messaggio: 'Mai avviato', eventi: 0, media: 0, errori: 0, totale: 0 };
-
-// token eliminati definitivamente da pochi secondi (protezione latenza MEGA)
 const cancellazioniRecenti = new Set();
 
-// ---------- CONNESSIONE MEGA ----------
+// ============================================================
+//  CONNESSIONE MEGA — con gestione errori e riconnessione
+// ============================================================
 let megaStorage = null;
 let megaPronto = false;
-if (process.env.MEGA_EMAIL && process.env.MEGA_PASSWORD) {
+let riconnessioneTimer = null;
+const backupInAttesa = [];   // backup accodati mentre MEGA era irraggiungibile
+
+function gestisciErroreMega(e) {
+  console.error('☁️ MEGA errore di connessione:', (e && (e.message || e.code)) || e);
+  megaPronto = false;
+  programmaRiconnessione();
+}
+
+function programmaRiconnessione(ritardo = 30000) {
+  if (!process.env.MEGA_EMAIL || riconnessioneTimer) return;
+  riconnessioneTimer = setTimeout(() => {
+    riconnessioneTimer = null;
+    console.log('☁️ Tentativo di riconnessione a MEGA…');
+    connettiMega();
+  }, ritardo);
+}
+
+function connettiMega() {
   try {
     const MegaLib = require('megajs');
     megaStorage = new MegaLib.Storage({
@@ -106,21 +129,34 @@ if (process.env.MEGA_EMAIL && process.env.MEGA_PASSWORD) {
       password: process.env.MEGA_PASSWORD,
       userAgent: 'foto-evento-app'
     }, (err) => {
-      if (err) { console.error('☁️ MEGA: accesso fallito:', err.message); megaStorage = null; }
-      else {
-        megaPronto = true;
-        console.log('☁️ Backup MEGA collegato (struttura: /FOTO-EVENTI)');
-        aggiornaIndice(() => {
-          garantisciRadice(() => garantisciSistema(() => programmaSnapshot(3000)));
-        });
+      if (err) {
+        console.error('☁️ MEGA: accesso fallito:', err.message);
+        megaPronto = false;
+        programmaRiconnessione(60000);
+        return;
       }
+      megaPronto = true;
+      megaCache.radice = null; megaCache.sistema = null; megaCache.eventi = {};
+      console.log('☁️ Backup MEGA collegato (struttura: /FOTO-EVENTI)');
+      aggiornaIndice(() => {
+        garantisciRadice(() => garantisciSistema(() => {
+          svuotaBackupInAttesa();
+          programmaSnapshot(3000);
+        }));
+      });
     });
+    // ⭐ gli errori DURANTE la connessione non devono far crashare il processo
+    if (typeof megaStorage.on === 'function') megaStorage.on('error', gestisciErroreMega);
+    if (megaStorage.api && typeof megaStorage.api.on === 'function') {
+      megaStorage.api.on('error', gestisciErroreMega);
+    }
   } catch (e) { console.error('☁️ MEGA non disponibile:', e.message); }
 }
 
+if (process.env.MEGA_EMAIL && process.env.MEGA_PASSWORD) connettiMega();
+
 // ============================================================
 //  LIVELLO MEGA
-//  figliDi(): usa children (presente in megajs) o il campo "parent"
 // ============================================================
 const RADICE_MEGA = 'FOTO-EVENTI';
 const CART_SISTEMA = '_sistema';
@@ -142,9 +178,6 @@ function aggiornaIndice(cb) {
   } catch (e) { cb(); }
 }
 
-// ---------- GESTIONE INDICE LOCALE (v6.6) ----------
-// rimuove un nodo dall'indice locale e dai children del genitore:
-// senza questo, i nodi cancellati restavano "visti" dal ripristino
 function rimuoviDaIndiceLocale(nodo) {
   if (!nodo || nodo.nodeId === undefined) return;
   if (megaStorage && megaStorage.files) {
@@ -156,8 +189,6 @@ function rimuoviDaIndiceLocale(nodo) {
   }
 }
 
-// rimuove dall'indice locale TUTTI i nodi legati a un token:
-// cartella "Nome [TOKEN]", vecchi file "TOKEN_...", "sfondo-TOKEN..."
 function rimuoviTokenDaIndiceLocale(token) {
   if (!megaStorage || !megaStorage.files) return;
   const re = new RegExp('\\[' + token + '\\]$');
@@ -197,7 +228,6 @@ function caricaInCartella(cartella, nome, buffer, cb) {
   } catch (e) { fine(e); }
 }
 
-// cancella il nodo su MEGA e lo toglie subito dall'indice locale
 function cancellaNodoMega(nodo) {
   if (!nodo) return;
   rimuoviDaIndiceLocale(nodo);
@@ -290,8 +320,8 @@ function garantisciCartellaEvento(ev, cb) {
   });
 }
 
-function backupMega(percorsoFile, nomeFile, ev) {
-  if (!megaStorage || !megaPronto || !ev) return;
+// backup effettivo (richiede MEGA pronto)
+function backupMegaDiretto(percorsoFile, nomeFile, ev) {
   try {
     const buffer = fs.readFileSync(percorsoFile);
     garantisciCartellaEvento(ev, (cartella) => {
@@ -302,6 +332,29 @@ function backupMega(percorsoFile, nomeFile, ev) {
       });
     });
   } catch (e) { console.error('☁️ Backup MEGA errore:', e.message); }
+
+}
+
+// backup con coda: se MEGA è momentaneamente giù, accoda e riprova alla riconnessione
+function backupMega(percorsoFile, nomeFile, ev) {
+  if (!megaStorage || !megaPronto) {
+    if (process.env.MEGA_EMAIL) {
+      backupInAttesa.push({ percorsoFile, nomeFile, ev });
+      if (backupInAttesa.length > 500) backupInAttesa.shift();
+      console.warn(`☁️ MEGA non pronto: backup accodato (${backupInAttesa.length} in attesa)`);
+    }
+    return;
+  }
+  backupMegaDiretto(percorsoFile, nomeFile, ev);
+}
+
+function svuotaBackupInAttesa() {
+  if (!megaStorage || !megaPronto || !backupInAttesa.length) return;
+  console.log(`☁️ Riconnesso: svuoto la coda di ${backupInAttesa.length} backup in attesa…`);
+  while (backupInAttesa.length) {
+    const b = backupInAttesa.shift();
+    if (fs.existsSync(b.percorsoFile)) backupMegaDiretto(b.percorsoFile, b.nomeFile, b.ev);
+  }
 }
 
 function eliminaPiattiMega(prefisso) {
@@ -325,18 +378,13 @@ function eliminaSfondiMega(token) {
   eliminaPiattiMega('sfondo-' + token);
 }
 
-// elimina la cartella MEGA di un evento (con tutto il contenuto) e
-// sincronizza subito l'indice locale + refresh di conferma da MEGA
 function eliminaCartellaEvento(token) {
   if (!megaStorage || !megaPronto) return;
   const cartella = trovaCartellaEvento(token);
-  // 1) pulizia IMMEDIATA dell'indice locale: un dialogo di ripristino
-  //    aperto subito dopo non vedrà più l'evento
   rimuoviTokenDaIndiceLocale(token);
   if (!cartella) return;
   figliDi(cartella).forEach(cancellaNodoMega);
   rimuoviDaIndiceLocale(cartella);
-  // 2) cancellazione reale su MEGA, poi refresh di conferma dell'indice
   setTimeout(() => {
     cancellaNodoMega(cartella);
     setTimeout(() => aggiornaIndice(() => {
@@ -604,7 +652,6 @@ app.post('/api/eventi/:id/dearchivia', soloAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-// ELIMINAZIONE: ?modo=archivia (nasconde, non tocca nulla) | ?modo=tutto (cancella tutto)
 app.delete('/api/eventi/:id', soloAdmin, (req, res) => {
   const modo = req.query.modo === 'archivia' ? 'archivia' : 'tutto';
   const ev = db.prepare('SELECT token, nome, sfondo FROM eventi WHERE id = ?').get(req.params.id);
@@ -623,8 +670,6 @@ app.delete('/api/eventi/:id', soloAdmin, (req, res) => {
   }
   if (ev.sfondo) { try { fs.unlinkSync(path.join(CARTELLA_FOTO, ev.sfondo)); } catch (e) {} }
   if (megaStorage && megaPronto) {
-    // 3) protezione latenza: per 8 secondi il token è escluso dal
-    //    dialogo di ripristino anche se MEGA non ha ancora propagato
     cancellazioniRecenti.add(ev.token);
     setTimeout(() => cancellazioniRecenti.delete(ev.token), 8000);
     eliminaCartellaEvento(ev.token);
@@ -729,7 +774,7 @@ app.get('/admin/eventi-mega', soloAdmin, (req, res) => {
         const m = c.name && c.name.match(/\[([A-Za-z0-9_-]{8})\]$/);
         if (!m || !conContenuto.has(m[1])) continue;
         const token = m[1];
-        if (cancellazioniRecenti.has(token)) continue; // eliminato da pochi secondi
+        if (cancellazioniRecenti.has(token)) continue;
         if (!lista[token]) {
           lista[token] = {
             token,
