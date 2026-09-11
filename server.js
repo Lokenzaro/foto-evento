@@ -1,6 +1,6 @@
 // ============================================================
-//  SERVER - App foto/video evento con QR code — v5
-//  Admin + invitati + galleria live + sfondo + backup MEGA
+//  SERVER - App foto/video evento con QR code — v6
+//  Archiviazione, ripristino selettivo, cartelle MEGA per evento
 // ============================================================
 
 const express = require('express');
@@ -27,7 +27,15 @@ const URL_BASE = process.env.URL_BASE || `http://${rilevaIPLocale()}:3000`;
 const PASSWORD_ADMIN = process.env.ADMIN_PASSWORD || 'admin123';
 const DATA_DIR = process.env.DATA_DIR || '.';
 const CARTELLA_FOTO = path.join(DATA_DIR, 'uploads');
-const CARTELLA_SFONDI = path.join(DATA_DIR, 'sfondi');
+
+const ESTENSIONI = {
+  'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp',
+  'image/gif': '.gif', 'image/heic': '.heic', 'image/heif': '.heif',
+  'video/webm': '.webm', 'video/mp4': '.mp4', 'video/quicktime': '.mov',
+  'video/x-matroska': '.mkv', 'video/3gpp': '.3gp'
+};
+const EST_MEDIA = ['jpg','jpeg','png','gif','webp','heic','heif','webm','mp4','mov','mkv','3gp'];
+const EST_VIDEO = ['.webm', '.mp4', '.mov', '.mkv', '.3gp'];
 
 // ---------- DATABASE ----------
 const db = new Database(path.join(DATA_DIR, 'database.db'));
@@ -50,32 +58,23 @@ db.exec(`
 `);
 try { db.exec("ALTER TABLE eventi ADD COLUMN qualita TEXT DEFAULT 'standard'"); } catch (e) {}
 try { db.exec("ALTER TABLE eventi ADD COLUMN sfondo TEXT"); } catch (e) {}
+try { db.exec("ALTER TABLE eventi ADD COLUMN archiviato INTEGER DEFAULT 0"); } catch (e) {}
 try { db.exec("ALTER TABLE foto ADD COLUMN tipo TEXT DEFAULT 'foto'"); } catch (e) {}
 
 fs.mkdirSync(CARTELLA_FOTO, { recursive: true });
-fs.mkdirSync(CARTELLA_SFONDI, { recursive: true });
 
-// fino a 100 MB: necessario per i video
-const caricamento = multer({ dest: CARTELLA_FOTO, limits: { fileSize: 100 * 1024 * 1024 } });
-const caricamentoSfondo = multer({
-  dest: CARTELLA_SFONDI,
-  limits: { fileSize: 10 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) cb(null, true);
-    else cb(new Error('Solo immagini per lo sfondo'));
+const storageMulter = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, CARTELLA_FOTO),
+  filename: (req, file, cb) => {
+    const ext = ESTENSIONI[file.mimetype]
+      || path.extname(file.originalname || '').toLowerCase()
+      || '.bin';
+    cb(null, crypto.randomBytes(12).toString('hex') + ext);
   }
 });
+const caricamento = multer({ storage: storageMulter, limits: { fileSize: 100 * 1024 * 1024 } });
 
-function estensioneDa(mime) {
-  const m = {
-    'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
-    'video/webm': 'webm', 'video/mp4': 'mp4', 'video/quicktime': 'mov',
-    'video/x-m4v': 'm4v', 'video/x-matroska': 'mkv'
-  };
-  return m[(mime || '').split(';')[0].trim()] || '';
-}
-
-// ---------- MEGA (opzionale) ----------
+// ---------- CONNESSIONE MEGA (opzionale) ----------
 let megaStorage = null;
 let megaPronto = false;
 if (process.env.MEGA_EMAIL && process.env.MEGA_PASSWORD) {
@@ -92,23 +91,85 @@ if (process.env.MEGA_EMAIL && process.env.MEGA_PASSWORD) {
   } catch (e) { console.error('☁️ MEGA non disponibile:', e.message); }
 }
 
-function backupMega(percorsoFile, nomeSuMega) {
+// --- cartelle MEGA ---
+const CART_SISTEMA = '_sistema';           // snapshot del database
+const cartelleCache = {};                  // token -> nodo cartella evento
+
+function nodiMega() { return Object.values(megaStorage.files || {}); }
+function figliDi(cartella) {
+  return nodiMega().filter(f => !f.isDirectory && f.parent === cartella.nodeId);
+}
+function pulisciNome(n) {
+  return (n || 'Evento').replace(/[\/\\:<>"'|?*\n\r]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60) || 'Evento';
+}
+
+function ottieniCartellaEvento(token, nomeEvento, cb) {
+  if (cartelleCache[token]) return cb(cartelleCache[token]);
+  const esistente = nodiMega().find(f => f.isDirectory && f.name.endsWith(`[${token}]`));
+  if (esistente) { cartelleCache[token] = esistente; return cb(esistente); }
+  try {
+    megaStorage.mkdir({ name: `${pulisciNome(nomeEvento)} [${token}]`, parent: megaStorage.root },
+      (err, folder) => { if (!err && folder) cartelleCache[token] = folder; cb(folder || null); });
+  } catch (e) { cb(null); }
+}
+
+function ottieniCartellaSistema(cb) {
+  const esistente = nodiMega().find(f => f.isDirectory && f.name === CART_SISTEMA);
+  if (esistente) return cb(esistente);
+  try {
+    megaStorage.mkdir({ name: CART_SISTEMA, parent: megaStorage.root },
+      (err, folder) => cb(folder || null));
+  } catch (e) { cb(null); }
+}
+
+function cancellaNodoMega(nodo) {
+  if (!nodo) return;
+  try { nodo.delete(true, () => {}); } catch (e1) { try { nodo.delete(() => {}); } catch (e2) {} }
+}
+
+// Elimina la cartella MEGA di un evento (con tutto il contenuto)
+function eliminaCartellaEvento(token) {
+  if (!megaStorage || !megaPronto) return;
+  const c = nodiMega().find(f => f.isDirectory && f.name.endsWith(`[${token}]`));
+  if (!c) return;
+  figliDi(c).forEach(cancellaNodoMega);
+  setTimeout(() => cancellaNodoMega(c), 1500); // dà tempo alla rimozione dei figli
+  delete cartelleCache[token];
+}
+
+// Rimuove i vecchi file "piatti" (backup di versione precedenti)
+function eliminaPiattiMega(prefisso) {
+  if (!megaStorage || !megaPronto) return;
+  nodiMega().forEach(f => {
+    if (f.name && !f.isDirectory && f.name.startsWith(prefisso)) cancellaNodoMega(f);
+  });
+}
+
+// Copia un file nella cartella MEGA dell'evento (fallback: root con prefisso token)
+function backupMega(percorsoFile, nomeFile, token, nomeEvento) {
   if (!megaStorage || !megaPronto) return;
   try {
     const buffer = fs.readFileSync(percorsoFile);
-    megaStorage.upload({ name: nomeSuMega, allowUploadBuffering: true }, buffer, (err) => {
-      if (err) console.error('☁️ Backup MEGA fallito:', err.message);
+    if (!token) return;
+    ottieniCartellaEvento(token, nomeEvento, (folder) => {
+      const nome = folder ? nomeFile : `${token}_${nomeFile}`;
+      const opzioni = { name: nome, allowUploadBuffering: true };
+      if (folder) opzioni.parent = folder;
+      megaStorage.upload(opzioni, buffer, (err) => {
+        if (err) console.error('☁️ Backup MEGA fallito:', err.message);
+      });
     });
   } catch (e) { console.error('☁️ Backup MEGA errore:', e.message); }
 }
 
-// ---------- SNAPSHOT DB SU MEGA (debounce 15 s) ----------
+// ---------- SNAPSHOT DATABASE SU MEGA (debounce 15 s) ----------
 let snapshotTimer = null;
 function programmaSnapshot(ritardo = 15000) {
   if (!megaStorage) return;
   clearTimeout(snapshotTimer);
   snapshotTimer = setTimeout(eseguiSnapshot, ritardo);
 }
+
 function eseguiSnapshot() {
   if (!megaStorage || !megaPronto) return;
   try {
@@ -118,9 +179,13 @@ function eseguiSnapshot() {
       foto: db.prepare('SELECT * FROM foto').all()
     });
     const nome = `db-snapshot-${Date.now()}.json`;
-    megaStorage.upload({ name: nome, allowUploadBuffering: true }, Buffer.from(dati), (err) => {
-      if (err) console.error('☁️ Snapshot DB non salvato:', err.message);
-      else console.log('☁️ Snapshot database salvato su MEGA');
+    ottieniCartellaSistema((cartella) => {
+      const opzioni = { name: nome, allowUploadBuffering: true };
+      if (cartella) opzioni.parent = cartella;
+      megaStorage.upload(opzioni, Buffer.from(dati), (err) => {
+        if (err) console.error('☁️ Snapshot DB non salvato:', err.message);
+        else console.log('☁️ Snapshot database salvato su MEGA');
+      });
     });
   } catch (e) { console.error('☁️ Snapshot errore:', e.message); }
 }
@@ -145,7 +210,7 @@ app.post('/admin/login', (req, res) => {
 });
 app.post('/admin/logout', (req, res) => req.session.destroy(() => res.json({ ok: true })));
 
-// ---------- API EVENTI (admin) ----------
+// ---------- API EVENTI (solo admin) ----------
 app.get('/api/eventi', soloAdmin, (req, res) => {
   const eventi = db.prepare(`
     SELECT e.*, COUNT(f.id) AS num_foto
@@ -160,7 +225,7 @@ app.post('/api/eventi', soloAdmin, (req, res) => {
   const LIVELLI = ['risparmio', 'standard', 'massima'];
   if (nome.length < 2) return res.status(400).json({ errore: 'Inserisci un nome valido' });
   const qualita = LIVELLI.includes(req.body.qualita) ? req.body.qualita : 'standard';
-  const token = crypto.randomBytes(6).toString('base64url'); // 8 caratteri
+  const token = crypto.randomBytes(6).toString('base64url');
   db.prepare('INSERT INTO eventi (token, nome, data_evento, qualita) VALUES (?, ?, ?, ?)')
     .run(token, nome, req.body.data_evento || null, qualita);
   programmaSnapshot();
@@ -175,44 +240,80 @@ app.post('/api/eventi/:id/qualita', soloAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
+// --- SFONDO PERSONALIZZATO ---
+app.post('/api/eventi/:id/sfondo', soloAdmin, caricamento.single('sfondo'), (req, res) => {
+  const ev = db.prepare('SELECT token, nome, sfondo FROM eventi WHERE id = ?').get(req.params.id);
+  if (!ev) return res.status(404).json({ errore: 'Evento non trovato' });
+  if (!req.file.mimetype.startsWith('image/')) {
+    try { fs.unlinkSync(req.file.path); } catch (e) {}
+    return res.status(400).json({ errore: 'Il file deve essere un\'immagine' });
+  }
+  if (ev.sfondo) { try { fs.unlinkSync(path.join(CARTELLA_FOTO, ev.sfondo)); } catch (e) {} }
+  db.prepare('UPDATE eventi SET sfondo = ? WHERE id = ?').run(req.file.filename, req.params.id);
+  const ext = path.extname(req.file.filename);
+  if (megaStorage && megaPronto) {
+    eliminaPiattiMega('sfondo-' + ev.token);
+    const vecchiaCartella = nodiMega().find(f => f.isDirectory && f.name.endsWith(`[${ev.token}]`));
+    if (vecchiaCartella) figliDi(vecchiaCartella).filter(f => f.name.startsWith('sfondo')).forEach(cancellaNodoMega);
+  }
+  backupMega(req.file.path, `sfondo${ext}`, ev.token, ev.nome);
+  programmaSnapshot();
+  res.json({ ok: true, sfondo: req.file.filename });
+});
+
+app.delete('/api/eventi/:id/sfondo', soloAdmin, (req, res) => {
+  const ev = db.prepare('SELECT token, sfondo FROM eventi WHERE id = ?').get(req.params.id);
+  if (!ev) return res.status(404).json({ errore: 'Evento non trovato' });
+  if (ev.sfondo) { try { fs.unlinkSync(path.join(CARTELLA_FOTO, ev.sfondo)); } catch (e) {} }
+  if (megaStorage && megaPronto) {
+    eliminaPiattiMega('sfondo-' + ev.token);
+    const cartella = nodiMega().find(f => f.isDirectory && f.name.endsWith(`[${ev.token}]`));
+    if (cartella) figliDi(cartella).filter(f => f.name.startsWith('sfondo')).forEach(cancellaNodoMega);
+  }
+  db.prepare('UPDATE eventi SET sfondo = NULL WHERE id = ?').run(req.params.id);
+  programmaSnapshot();
+  res.json({ ok: true });
+});
+
 app.post('/api/eventi/:id/toggle', soloAdmin, (req, res) => {
   db.prepare('UPDATE eventi SET attivo = 1 - attivo WHERE id = ?').run(req.params.id);
   programmaSnapshot();
   res.json({ ok: true });
 });
 
-app.delete('/api/eventi/:id', soloAdmin, (req, res) => {
-  const ev = db.prepare('SELECT token FROM eventi WHERE id = ?').get(req.params.id);
-  if (ev) {
-    const foto = db.prepare('SELECT filename FROM foto WHERE evento_token = ?').all(ev.token);
-    for (const f of foto) { try { fs.unlinkSync(path.join(CARTELLA_FOTO, f.filename)); } catch (e) {} }
-    if (megaStorage && megaPronto) {
-      Object.values(megaStorage.files || {}).forEach(f => {
-        if (f.name && !f.isDirectory && f.name.startsWith(ev.token + '_')) {
-          try { f.delete(() => {}); } catch (e) {}
-        }
-      });
-    }
-    db.prepare('DELETE FROM foto WHERE evento_token = ?').run(ev.token);
-    db.prepare('DELETE FROM eventi WHERE id = ?').run(req.params.id);
-    programmaSnapshot();
-  }
+// Riporta un evento archiviato nell'elenco
+app.post('/api/eventi/:id/dearchivia', soloAdmin, (req, res) => {
+  db.prepare('UPDATE eventi SET archiviato = 0 WHERE id = ?').run(req.params.id);
+  programmaSnapshot();
   res.json({ ok: true });
 });
 
-// ---------- SFONDO (admin) ----------
-app.post('/admin/sfondo/:id', soloAdmin, caricamentoSfondo.single('sfondo'), (req, res) => {
-  const ev = db.prepare('SELECT id, sfondo FROM eventi WHERE id = ?').get(req.params.id);
-  if (!ev) return res.status(404).json({ errore: 'Evento non trovato' });
-  if (!req.file) return res.status(400).json({ errore: 'File mancante' });
-  let ext = estensioneDa(req.file.mimetype);
-  if (!ext) ext = 'jpg';
-  const nome = `sf-${Date.now()}-${crypto.randomBytes(3).toString('hex')}.${ext}`;
-  fs.renameSync(req.file.path, path.join(CARTELLA_SFONDI, nome));
-  if (ev.sfondo) { try { fs.unlinkSync(path.join(CARTELLA_SFONDI, ev.sfondo)); } catch (e) {} }
-  db.prepare('UPDATE eventi SET sfondo = ? WHERE id = ?').run(nome, req.params.id);
+// ELIMINAZIONE con scelta:
+//   ?modo=archivia → nasconde dall'elenco (archivia): NON cancella nulla, né disco né MEGA
+//   ?modo=tutto    → elimina definitivamente disco + MEGA + database
+app.delete('/api/eventi/:id', soloAdmin, (req, res) => {
+  const modo = req.query.modo === 'archivia' ? 'archivia' : 'tutto';
+  const ev = db.prepare('SELECT token, nome, sfondo FROM eventi WHERE id = ?').get(req.params.id);
+  if (!ev) return res.json({ ok: true });
+
+  if (modo === 'archivia') {
+    db.prepare('UPDATE eventi SET archiviato = 1, attivo = 0 WHERE id = ?').run(req.params.id);
+    programmaSnapshot();
+    return res.json({ ok: true, modo });
+  }
+
+  const media = db.prepare('SELECT filename FROM foto WHERE evento_token = ?').all(ev.token);
+  for (const m of media) { try { fs.unlinkSync(path.join(CARTELLA_FOTO, m.filename)); } catch (e) {} }
+  if (ev.sfondo) { try { fs.unlinkSync(path.join(CARTELLA_FOTO, ev.sfondo)); } catch (e) {} }
+  if (megaStorage && megaPronto) {
+    eliminaCartellaEvento(ev.token);
+    eliminaPiattiMega(ev.token + '_');
+    eliminaPiattiMega('sfondo-' + ev.token);
+  }
+  db.prepare('DELETE FROM foto WHERE evento_token = ?').run(ev.token);
+  db.prepare('DELETE FROM eventi WHERE id = ?').run(req.params.id);
   programmaSnapshot();
-  res.json({ ok: true, sfondo: '/sfondo/' + nome });
+  res.json({ ok: true, modo });
 });
 
 // ---------- API PUBBLICHE (sola lettura) ----------
@@ -220,26 +321,21 @@ app.get('/api/evento/:token', (req, res) => {
   const ev = db.prepare('SELECT nome, qualita, sfondo FROM eventi WHERE token = ? AND attivo = 1')
     .get(req.params.token);
   if (!ev) return res.status(404).json({ errore: 'Evento non trovato o chiuso' });
-  res.json({ nome: ev.nome, qualita: ev.qualita, sfondo: ev.sfondo ? '/sfondo/' + ev.sfondo : null });
+  res.json({ nome: ev.nome, qualita: ev.qualita, sfondo: ev.sfondo ? '/foto/' + ev.sfondo : null });
 });
 
 app.get('/api/foto/:token', (req, res) => {
   const ev = db.prepare('SELECT id FROM eventi WHERE token = ?').get(req.params.token);
   if (!ev) return res.status(404).json({ errore: 'Evento non trovato' });
-  const foto = db.prepare(
-    'SELECT filename, invitato, caricata_il, tipo FROM foto WHERE evento_token = ? ORDER BY id DESC'
+  const media = db.prepare(
+    'SELECT filename, tipo, invitato, caricata_il FROM foto WHERE evento_token = ? ORDER BY id DESC'
   ).all(req.params.token);
-  res.json(foto.map(f => ({
-    ...f,
-    tipo: f.tipo || 'foto',
-    url: '/foto/' + f.filename
-  })));
+  res.json(media.map(m => ({ ...m, url: '/foto/' + m.filename, tipo: m.tipo || 'foto' })));
 });
 
-app.use('/foto', express.static(CARTELLA_FOTO));     // sola lettura (supporta Range: video ok)
-app.use('/sfondo', express.static(CARTELLA_SFONDI)); // sola lettura
+app.use('/foto', express.static(CARTELLA_FOTO));
 
-// ---------- QR ----------
+// ---------- QR CODE ----------
 app.get('/qr/:token', soloAdmin, async (req, res) => {
   const ev = db.prepare('SELECT token FROM eventi WHERE token = ?').get(req.params.token);
   if (!ev) return res.status(404).send('Non trovato');
@@ -260,159 +356,222 @@ app.get('/galleria/:token', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'galleria.html'));
 });
 
-// ---------- CARICAMENTO FOTO/VIDEO ----------
-app.post('/upload', caricamento.single('foto'), (req, res) => {
-  const ev = db.prepare('SELECT token FROM eventi WHERE token = ? AND attivo = 1').get(req.body.token);
+// ---------- CARICAMENTO FOTO E VIDEO ----------
+app.post('/upload', caricamento.single('media'), (req, res) => {
+  const ev = db.prepare('SELECT token, nome FROM eventi WHERE token = ? AND attivo = 1').get(req.body.token);
   if (!ev) return res.status(403).json({ errore: 'Evento non valido o chiuso' });
-
-  // assegna l'estensione giusta al file (multer la omette)
-  let ext = estensioneDa(req.file.mimetype);
-  if (!ext) ext = path.extname(req.file.originalname || '').toLowerCase().replace('.', '');
-  const nuovoNome = ext ? `${req.file.filename}.${ext}` : req.file.filename;
-  if (ext) fs.renameSync(req.file.path, path.join(CARTELLA_FOTO, nuovoNome));
-
-  const tipo = req.file.mimetype.startsWith('video') ? 'video' : 'foto';
+  const tipo = req.file.mimetype.startsWith('video/') ? 'video' : 'foto';
   db.prepare('INSERT INTO foto (evento_token, filename, invitato, tipo) VALUES (?, ?, ?, ?)')
-    .run(ev.token, nuovoNome, (req.body.nome || 'Invitato').slice(0, 50), tipo);
-
-  backupMega(path.join(CARTELLA_FOTO, nuovoNome), `${ev.token}_${nuovoNome}`);
+    .run(ev.token, req.file.filename, (req.body.nome || 'Invitato').slice(0, 50), tipo);
+  backupMega(req.file.path, req.file.filename, ev.token, ev.nome);
   programmaSnapshot();
-  res.json({ ok: true });
+  res.json({ ok: true, tipo });
 });
 
-// ---------- RIPRISTINO DA MEGA ----------
-const ripristino = { in_corso: false, messaggio: 'Mai avviato', eventi: 0, foto: 0, errori: 0, totale: 0 };
+// ---------- ELENCO DEI BACKUP MEGA (per il ripristino selettivo) ----------
+app.get('/admin/eventi-mega', soloAdmin, async (req, res) => {
+  if (!megaStorage || !megaPronto) return res.status(400).json({ errore: 'MEGA non configurato' });
+  try {
+    const lista = {};
+    const aggiungi = (token, nome) => {
+      if (!lista[token]) lista[token] = { token, nome: nome || 'Evento (backup)', num_media: 0 };
+    };
+
+    // eventi presenti nello snapshot più recente
+    const snaps = nodiMega().filter(f => f.name.startsWith('db-snapshot-') && f.name.endsWith('.json'))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    if (snaps.length) {
+      await new Promise(done => {
+        snaps[snaps.length - 1].downloadBuffer((err, buf) => {
+          if (!err) {
+            try {
+              const d = JSON.parse(buf.toString('utf8'));
+              for (const ev of (d.eventi || [])) aggiungi(ev.token, ev.nome);
+            } catch (e) {}
+          }
+          done();
+        });
+      });
+    }
+
+    // cartelle evento (nuovo formato: "Nome [TOKEN]")
+    for (const c of nodiMega().filter(f => f.isDirectory)) {
+      const m = c.name.match(/\[([A-Za-z0-9_-]{8})\]$/);
+      if (m) {
+        aggiungi(m[1], c.name.replace(/\s*\[[^\]]+\]$/, ''));
+        lista[m[1]].num_media = figliDi(c).filter(f => !f.name.startsWith('sfondo')).length;
+      }
+    }
+    // vecchi file piatti "TOKEN_file.ext"
+    for (const f of nodiMega().filter(x => !x.isDirectory && x.name)) {
+      const m = f.name.match(new RegExp(`^([A-Za-z0-9_-]{8})_.+\\.(${EST_MEDIA.join('|')})$`, 'i'));
+      if (m) { aggiungi(m[1]); lista[m[1]].num_media++; }
+    }
+
+    // segnala quali eventi esistono già sul server (ripristino parziale)
+    res.json(Object.values(lista).map(e => ({
+      ...e,
+      gia_presente: !!db.prepare('SELECT id FROM eventi WHERE token = ?').get(e.token)
+    })));
+  } catch (e) { res.status(500).json({ errore: e.message }); }
+});
+
+// ---------- RIPRISTINO SELETTIVO DAL BACKUP MEGA ----------
+const ripristino = { in_corso: false, messaggio: 'Mai avviato', eventi: 0, media: 0, errori: 0, totale: 0 };
 
 app.post('/admin/ripristino', soloAdmin, (req, res) => {
   if (!megaStorage || !megaPronto) {
     return res.status(400).json({ errore: 'MEGA non configurato: servono MEGA_EMAIL e MEGA_PASSWORD' });
   }
+  const tokens = Array.isArray(req.body.tokens)
+    ? req.body.tokens.filter(t => /^[A-Za-z0-9_-]{8}$/.test(t)) : [];
+  if (!tokens.length) return res.status(400).json({ errore: 'Seleziona almeno un evento da ripristinare' });
   if (ripristino.in_corso) return res.json({ ok: true });
   ripristino.in_corso = true;
-  ripristino.eventi = 0; ripristino.foto = 0; ripristino.errori = 0; ripristino.totale = 0;
+  ripristino.eventi = 0; ripristino.media = 0; ripristino.errori = 0; ripristino.totale = 0;
   ripristino.messaggio = 'Avvio: lettura dei file da MEGA…';
-  eseguiRipristino();
+  eseguiRipristino(tokens);
   res.json({ ok: true });
 });
 
 app.get('/admin/stato-ripristino', soloAdmin, (req, res) => res.json(ripristino));
 
-function eseguiRipristino() {
+function eseguiRipristino(tokens) {
   try {
-    const tutti = Object.values(megaStorage.files || {}).filter(f => !f.isDirectory && f.name);
-    const snapshots = tutti
-      .filter(f => f.name.startsWith('db-snapshot-') && f.name.endsWith('.json'))
+    const snaps = nodiMega().filter(f => f.name.startsWith('db-snapshot-') && f.name.endsWith('.json'))
       .sort((a, b) => a.name.localeCompare(b.name));
 
-    if (snapshots.length) {
+    const continuaConMedia = () => scaricaSelezionati(tokens, finalizzaRipristino);
+
+    if (snaps.length) {
       ripristino.messaggio = 'Scarico lo snapshot del database…';
-      snapshots[snapshots.length - 1].downloadBuffer((err, buffer) => {
+      snaps[snaps.length - 1].downloadBuffer((err, buffer) => {
         if (err) {
           ripristino.errori++;
-          ripristino.messaggio = 'Snapshot illeggibile (' + err.message + '), recupero solo i file…';
+          continuaConMedia();
         } else {
           try {
             const dati = JSON.parse(buffer.toString('utf8'));
             const insEvento = db.prepare(`INSERT INTO eventi
-              (token, nome, data_evento, qualita, attivo, creato_il, sfondo) VALUES (?, ?, ?, ?, ?, ?, ?)`);
-            const insFoto = db.prepare(`INSERT INTO foto
+              (token, nome, data_evento, qualita, attivo, creato_il, sfondo, archiviato)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+            const insMedia = db.prepare(`INSERT INTO foto
               (evento_token, filename, invitato, caricata_il, tipo) VALUES (?, ?, ?, ?, ?)`);
             db.transaction(() => {
               for (const ev of (dati.eventi || [])) {
+                if (!tokens.includes(ev.token)) continue;
                 const esiste = db.prepare('SELECT id FROM eventi WHERE token = ?').get(ev.token);
                 if (!esiste) {
                   insEvento.run(ev.token, ev.nome, ev.data_evento || null,
                     ev.qualita || 'standard', ev.attivo === undefined ? 1 : ev.attivo,
-                    ev.creato_il || null, ev.sfondo || null);
+                    ev.creato_il || null, ev.sfondo || null, ev.archiviato ? 1 : 0);
                   ripristino.eventi++;
                 }
               }
-              for (const f of (dati.foto || [])) {
+              for (const m of (dati.foto || [])) {
+                if (!tokens.includes(m.evento_token)) continue;
                 const esiste = db.prepare('SELECT id FROM foto WHERE evento_token = ? AND filename = ?')
-                  .get(f.evento_token, f.filename);
+                  .get(m.evento_token, m.filename);
                 if (!esiste) {
-                  insFoto.run(f.evento_token, f.filename, f.invitato || 'Invitato',
-                    f.caricata_il || null, f.tipo || 'foto');
-                  ripristino.foto++;
+                  insMedia.run(m.evento_token, m.filename, m.invitato || 'Invitato',
+                    m.caricata_il || null, m.tipo || 'foto');
+                  ripristino.media++;
                 }
               }
             })();
+            continuaConMedia();
           } catch (e) {
             ripristino.errori++;
-            ripristino.messaggio = 'Snapshot corrotto (' + e.message + '), recupero solo i file…';
+            continuaConMedia();
           }
         }
-        scaricaFile(tutti);
       });
-    } else {
-      scaricaFile(tutti);
-    }
+    } else continuaConMedia();
   } catch (e) {
     ripristino.in_corso = false;
     ripristino.messaggio = 'Errore durante il ripristino: ' + e.message;
   }
 }
 
-function scaricaFile(filesMega) {
-  const RE = /^[A-Za-z0-9_-]{8}_.+\.(jpg|jpeg|png|webp|gif|webm|mp4|mov|m4v|mkv)$/i;
-  const lista = [
-    ...filesMega.filter(f => RE.test(f.name)).map(f => ({ f, tipo: 'media' })),
-    ...filesMega.filter(f => f.name.startsWith('sfondo_')).map(f => ({ f, tipo: 'sfondo' }))
-  ];
-  ripristino.totale = lista.length;
+function finalizzaRipristino() {
+  ripristino.in_corso = false;
+  ripristino.messaggio =
+    `✅ Completato: ${ripristino.eventi} eventi recuperati, ` +
+    `${ripristino.media} foto/video ripristinati, ${ripristino.errori} errori.`;
+  programmaSnapshot(3000);
+}
+
+// Costruisce l'elenco dei file da scaricare SOLO per i token scelti
+// (cartelle nuove "Nome [TOKEN]" + vecchi file piatti "TOKEN_file.ext")
+function scaricaSelezionati(tokens, done) {
+  const tasks = [];
+
+  for (const token of tokens) {
+    const cartella = nodiMega().find(f => f.isDirectory && f.name.endsWith(`[${token}]`));
+    if (cartella) {
+      for (const f of figliDi(cartella)) {
+        if (f.name.startsWith('sfondo')) continue;
+        tasks.push({ f, token, filename: f.name });
+      }
+    }
+    for (const f of nodiMega().filter(x => !x.isDirectory && x.name)) {
+      const m = f.name.match(new RegExp(`^${token}_(.+)\\.(${EST_MEDIA.join('|')})$`, 'i'));
+      if (m) tasks.push({ f, token, filename: m[1] });
+    }
+  }
+
+  // sfondi: uno per token (se l'evento lo prevede e manca sul disco)
+  for (const token of tokens) {
+    const ev = db.prepare('SELECT sfondo FROM eventi WHERE token = ?').get(token);
+    if (!ev || !ev.sfondo) continue;
+    if (fs.existsSync(path.join(CARTELLA_FOTO, ev.sfondo))) continue;
+    const cartella = nodiMega().find(f => f.isDirectory && f.name.endsWith(`[${token}]`));
+    if (cartella) {
+      const sf = figliDi(cartella).find(f => f.name.startsWith('sfondo'));
+      if (sf) { tasks.push({ f: sf, token, filename: ev.sfondo, soloFile: true }); continue; }
+    }
+    const piatto = nodiMega().find(f => !f.isDirectory &&
+      new RegExp(`^sfondo-${token}\\.(${EST_MEDIA.join('|')})$`, 'i').test(f.name));
+    if (piatto) tasks.push({ f: piatto, token, filename: ev.sfondo, soloFile: true });
+  }
+
+  ripristino.totale = tasks.length;
   let i = 0;
 
   const prossima = () => {
-    if (i >= lista.length) {
-      ripristino.in_corso = false;
-      ripristino.messaggio =
-        `✅ Completato: ${ripristino.eventi} eventi recuperati, ` +
-        `${ripristino.foto} foto/video ripristinati, ${ripristino.errori} errori.`;
-      programmaSnapshot(3000);
-      return;
-    }
-    const item = lista[i++];
-    ripristino.messaggio = `File ${i} di ${ripristino.totale}…`;
+    if (i >= tasks.length) return done();
+    const t = tasks[i++];
+    ripristino.messaggio = `Scarico ${i} di ${ripristino.totale}…`;
 
-    let token, filename, percorsoLocale;
-    if (item.tipo === 'sfondo') {
-      filename = item.f.name.slice('sfondo_'.length);
-      percorsoLocale = path.join(CARTELLA_SFONDI, filename);
-    } else {
-      const m = item.f.name.match(/^([A-Za-z0-9_-]{8})_(.+)$/);
-      token = m[1]; filename = m[2];
-      percorsoLocale = path.join(CARTELLA_FOTO, filename);
+    const percorsoLocale = path.join(CARTELLA_FOTO, t.filename);
+    const registrato = db.prepare('SELECT id FROM foto WHERE evento_token = ? AND filename = ?')
+      .get(t.token, t.filename);
+    if (!t.soloFile && registrato && fs.existsSync(percorsoLocale)) { prossima(); return; }
 
-      const evEsiste = db.prepare('SELECT id FROM eventi WHERE token = ?').get(token);
-      if (!evEsiste) {
-        db.prepare(`INSERT INTO eventi (token, nome, data_evento, qualita, attivo, creato_il, sfondo)
-          VALUES (?, 'Evento recuperato', NULL, 'standard', 1, ?, NULL)`)
-          .run(token, new Date().toISOString().slice(0, 19).replace('T', ' '));
-        ripristino.eventi++;
-      }
-      const registrata = db.prepare('SELECT id FROM foto WHERE evento_token = ? AND filename = ?')
-        .get(token, filename);
-      if (registrata && fs.existsSync(percorsoLocale)) { prossima(); return; }
+    // se l'evento non esiste, lo ricreo (snapshot più vecchio del backup)
+    const evEsiste = db.prepare('SELECT id FROM eventi WHERE token = ?').get(t.token);
+    if (!evEsiste) {
+      const c = nodiMega().find(f => f.isDirectory && f.name.endsWith(`[${t.token}]`));
+      const nome = c ? c.name.replace(/\s*\[[^\]]+\]$/, '') : 'Evento recuperato';
+      db.prepare(`INSERT INTO eventi (token, nome, data_evento, qualita, attivo, creato_il, sfondo, archiviato)
+        VALUES (?, ?, NULL, 'standard', 1, ?, NULL, 0)`)
+        .run(t.token, nome, new Date().toISOString().slice(0, 19).replace('T', ' '));
+      ripristino.eventi++;
     }
 
-    if (fs.existsSync(percorsoLocale)) { prossima(); return; } // già presente su disco
-
-    item.f.downloadBuffer((err, buffer) => {
+    t.f.downloadBuffer((err, buffer) => {
       if (err) { ripristino.errori++; }
       else {
         try {
           fs.writeFileSync(percorsoLocale, buffer);
-          if (item.tipo === 'media') {
-            const registrata = db.prepare('SELECT id FROM foto WHERE evento_token = ? AND filename = ?')
-              .get(token, filename);
-            if (!registrata) {
-              let quando = null;
-              try { quando = new Date(item.f.timestamp).toISOString().slice(0, 19).replace('T', ' '); } catch (e) {}
-              const tipo = /\.(webm|mp4|mov|m4v|mkv)$/i.test(filename) ? 'video' : 'foto';
-              db.prepare('INSERT INTO foto (evento_token, filename, invitato, caricata_il, tipo) VALUES (?, ?, ?, ?, ?)')
-                .run(token, filename, 'Invitato', quando, tipo);
-              ripristino.foto++;
-            }
+          if (!t.soloFile && !registrato) {
+            let quando = null;
+            try { quando = new Date(t.f.timestamp).toISOString().slice(0, 19).replace('T', ' '); } catch (e) {}
+            const ext = path.extname(t.filename).toLowerCase();
+            const tipo = EST_VIDEO.includes(ext) ? 'video' : 'foto';
+            db.prepare('INSERT INTO foto (evento_token, filename, invitato, caricata_il, tipo) VALUES (?, ?, ?, ?, ?)')
+              .run(t.token, t.filename, 'Invitato', quando, tipo);
+            ripristino.media++;
           }
         } catch (e) { ripristino.errori++; }
       }
@@ -421,12 +580,6 @@ function scaricaFile(filesMega) {
   };
   prossima();
 }
-
-// Gestore errori (es. file troppo grande, sfondo non-immagine)
-app.use((err, req, res, next) => {
-  console.error('Errore:', err.message);
-  res.status(400).json({ errore: err.message || 'Errore richiesta' });
-});
 
 app.use(express.static('public'));
 

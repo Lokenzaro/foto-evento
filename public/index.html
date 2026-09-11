@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Evento</title>
+<title>Evento – foto e video</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;800&display=swap" rel="stylesheet">
@@ -16,26 +16,27 @@
       radial-gradient(50% 40% at 92% 8%, rgba(236,72,153,.28), transparent 60%),
       radial-gradient(45% 40% at 50% 100%, rgba(56,189,248,.20), transparent 60%);
     background-attachment: fixed; }
-  .wrap { max-width: 460px; margin: 0 auto; padding: 1.2rem 1rem 2.5rem; }
-
-  header { text-align: center; margin: .6rem 0 1.1rem; min-height: 3.2rem;
-    display: flex; align-items: center; justify-content: center; }
-  header h1 { margin: 0; font-size: clamp(1.9rem, 8vw, 2.5rem); font-weight: 800;
-    line-height: 1.15; text-wrap: balance;
-    background: linear-gradient(90deg, #a78bfa, #f472b6);
-    -webkit-background-clip: text; background-clip: text; color: transparent;
-    filter: drop-shadow(0 2px 14px rgba(0,0,0,.45)); }
-
-  .card { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12);
-    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
-    border-radius: 24px; padding: 1.1rem; }
-
+  body.con-sfondo { background-size: cover; background-position: center; }
+  .wrap { max-width: 460px; margin: 0 auto; padding: 1.4rem 1rem 2.5rem; }
+  header { text-align: center; margin-bottom: 1.2rem; }
+  .titolo-evento { margin: 0; font-size: clamp(2rem, 8vw, 2.8rem); font-weight: 800;
+    line-height: 1.12; text-shadow: 0 2px 18px rgba(0,0,0,.55);
+    background: linear-gradient(90deg, #f9a8d4, #a78bfa, #7dd3fc);
+    -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .card { background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.14);
+    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    border-radius: 24px; padding: 1.1rem; box-shadow: 0 10px 40px rgba(0,0,0,.35); }
   input[type="text"] { width: 100%; padding: .75rem .9rem; border-radius: 12px;
-    border: 1px solid rgba(255,255,255,.15); background: rgba(255,255,255,.08);
+    border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.1);
     color: #fff; font-size: 1rem; margin-bottom: .9rem; outline: none; }
   input[type="text"]::placeholder { color: #94a3b8; }
   input[type="text"]:focus { border-color: #a78bfa; }
-
+  .selettore { display: flex; gap: .4rem; margin-bottom: .8rem; background: rgba(255,255,255,.07);
+    border-radius: 12px; padding: .3rem; }
+  .tab { flex: 1; padding: .55rem; border: none; border-radius: 9px; background: transparent;
+    color: #94a3b8; font-weight: 600; font-size: .95rem; cursor: pointer; touch-action: manipulation; }
+  .tab.attiva { background: linear-gradient(90deg, #7c3aed, #ec4899); color: #fff; }
+  .tab:disabled { opacity: .4; cursor: default; }
   .viewport { position: relative; aspect-ratio: 4/3; border-radius: 20px; overflow: hidden;
     background: #000; border: 1px solid rgba(255,255,255,.15); }
   .viewport video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
@@ -48,37 +49,21 @@
   #ov-msg { font-size: .85rem; color: #e2e8f0; margin: 0; }
   #flip { position: absolute; top: 10px; right: 10px; width: 42px; height: 42px;
     border: none; border-radius: 50%; background: rgba(0,0,0,.55); color: #fff;
-    font-size: 1.15rem; cursor: pointer; }
-  #flip:disabled { opacity: .35; }
+    font-size: 1.15rem; cursor: pointer; touch-action: manipulation; }
+  #flip:disabled { opacity: .35; cursor: default; }
   #flash { position: absolute; inset: 0; background: #fff; opacity: 0;
     pointer-events: none; transition: opacity .18s; }
-  #rec-led { position: absolute; top: 12px; left: 12px; display: none; align-items: center;
-    gap: .4rem; padding: .25rem .6rem; border-radius: 99px; font-size: .78rem; font-weight: 600;
-    background: rgba(0,0,0,.55); color: #fff; }
-  #rec-led::before { content: ''; width: 9px; height: 9px; border-radius: 50%;
-    background: #ef4444; animation: pulsa 1s infinite; }
-  @keyframes pulsa { 50% { opacity: .25; } }
-
-  /* selettore modalità */
-  .modalita { display: flex; justify-content: center; gap: .5rem; margin-top: .9rem; }
-  .modalita button { padding: .5rem 1.1rem; font-size: .9rem; font-weight: 600; cursor: pointer;
-    border: 1px solid rgba(255,255,255,.2); border-radius: 99px;
-    background: rgba(255,255,255,.08); color: #cbd5e1; }
-  .modalita button.attiva { background: linear-gradient(90deg, #7c3aed, #ec4899);
-    border-color: transparent; color: #fff; }
-
-  .zona-scatto { text-align: center; margin-top: .9rem; }
+  .zona-scatto { text-align: center; margin-top: 1rem; }
   #scatta { width: 78px; height: 78px; border-radius: 50%; border: none; cursor: pointer;
     background: #fff; box-shadow: 0 0 0 7px rgba(255,255,255,.16), 0 10px 34px rgba(255,255,255,.35);
-    transition: transform .08s; }
+    transition: transform .08s, background .15s; touch-action: manipulation; }
   #scatta:active { transform: scale(.9); }
-  #scatta.rec { box-shadow: 0 0 0 7px rgba(239,68,68,.25), 0 10px 34px rgba(239,68,68,.5); }
-  #scatta.rec::after { content: ''; display: block; width: 30px; height: 30px; margin: 0 auto;
-    border-radius: 50%; background: #ef4444; }
+  #scatta.rec { background: #ef4444;
+    box-shadow: 0 0 0 7px rgba(239,68,68,.25), 0 10px 34px rgba(239,68,68,.45); }
   .pill { display: inline-block; margin-top: .8rem; padding: .45rem 1.1rem; border-radius: 99px;
     font-size: .85rem; color: #e2e8f0; background: rgba(255,255,255,.09);
     border: 1px solid rgba(255,255,255,.14); }
-
+  .pill.rec { color: #fca5a5; border-color: rgba(239,68,68,.5); }
   .secondaria { margin-top: 1rem; display: flex; flex-direction: column; gap: .6rem; }
   .ghost { padding: .65rem; text-align: center; font-size: .92rem; color: #cbd5e1;
     background: transparent; border: 1px dashed rgba(255,255,255,.25); border-radius: 12px;
@@ -93,22 +78,20 @@
     border-radius: 50%; background: #fff; transition: .2s; }
   .switch input:checked + .slider { background: linear-gradient(90deg, #7c3aed, #ec4899); }
   .switch input:checked + .slider::after { left: 21px; }
-
   #coda { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
   #coda:empty { display: none; }
   .mini { position: relative; width: 58px; height: 58px; border-radius: 12px; overflow: hidden;
     border: 1px solid rgba(255,255,255,.2); }
-  .mini img, .mini video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .mini img { width: 100%; height: 100%; object-fit: cover; }
+  .mini.video { display: flex; align-items: center; justify-content: center;
+    background: rgba(124,58,237,.25); font-size: 1.5rem; }
   .mini .stato { position: absolute; bottom: 2px; right: 2px; font-size: .8rem;
-    filter: drop-shadow(0 1px 2px #000); }
-  .mini .tipo { position: absolute; top: 2px; left: 4px; font-size: .75rem;
     filter: drop-shadow(0 1px 2px #000); }
   .mini.err { border-color: #f87171; cursor: pointer; }
   #stato { text-align: center; min-height: 1.5em; margin: .8rem 0 0; font-size: .92rem; color: #e2e8f0; }
   #invia { display: none; width: 100%; margin-top: .7rem; padding: .9rem; font-size: 1rem;
     font-weight: 600; border: none; border-radius: 14px; cursor: pointer;
     background: linear-gradient(90deg, #7c3aed, #ec4899); color: #fff; }
-
   .link-galleria { display: block; text-align: center; margin-top: 1.4rem; font-weight: 600;
     background: linear-gradient(90deg, #7dd3fc, #a78bfa);
     -webkit-background-clip: text; background-clip: text; color: transparent; }
@@ -118,16 +101,20 @@
 <body>
 <div class="wrap">
   <header>
-    <h1 id="nome-evento">…</h1>
+    <h1 class="titolo-evento" id="nome-evento">…</h1>
   </header>
 
   <div class="card">
     <input type="text" id="nome" placeholder="Il tuo nome (facoltativo)" maxlength="50">
 
+    <div class="selettore">
+      <button class="tab attiva" id="tab-foto" onclick="setModalita('foto')">📷 Foto</button>
+      <button class="tab" id="tab-video" onclick="setModalita('video')">🎬 Video</button>
+    </div>
+
     <div class="viewport">
       <video id="video" autoplay muted playsinline></video>
       <div id="flash"></div>
-      <span id="rec-led">REC</span>
       <button id="flip" onclick="cambiaCamera()" title="Cambia fotocamera">🔄</button>
       <div id="overlay-avvio">
         <p id="ov-msg">Tocca per attivare la fotocamera</p>
@@ -135,25 +122,20 @@
       </div>
     </div>
 
-    <div class="modalita">
-      <button id="m-foto" class="attiva" onclick="cambiaModalita('foto')">📷 Foto</button>
-      <button id="m-video" onclick="cambiaModalita('video')">🎥 Video</button>
-    </div>
-
     <div class="zona-scatto">
-      <button id="scatta" onclick="scatta()" title="Scatta / Registra"></button>
-      <br><span class="pill" id="hint">Inquadra e premi il pulsante</span>
+      <button id="scatta" onclick="azioneScatto()" title="Scatta / registra"></button>
+      <br><span class="pill" id="pill">Inquadra e premi il pulsante</span>
     </div>
 
     <div class="secondaria">
-      <label class="ghost" for="file">🖼️ oppure scegli foto/video dal telefono</label>
+      <label class="ghost" for="file">🖼️🎬 oppure scegli foto e video dal telefono</label>
       <input type="file" id="file" accept="image/*,video/*" multiple hidden>
       <div class="opzioni">
         <label class="switch">Invio automatico
           <input type="checkbox" id="auto" checked>
           <span class="slider"></span>
         </label>
-        <span id="contatore">0 inviati</span>
+        <span id="contatore">0 inviate</span>
       </div>
     </div>
 
@@ -163,7 +145,7 @@
   </div>
 
   <a class="link-galleria" id="link-galleria" href="#">🖼️ Vedi la galleria dell'evento →</a>
-  <p class="tag-versione">pagina invitato · v5</p>
+  <p class="tag-versione">pagina invitato · v6</p>
 </div>
 
 <script>
@@ -173,148 +155,199 @@ const LIVELLI = {
   standard:  { max: 1920, q: .85 },
   massima:   { max: 4000, q: .92 }
 };
-const MAX_VIDEO_SEC = 60;                    // auto-stop registrazione
-const MAX_UPLOAD = 100 * 1024 * 1024;        // 100 MB
-
 let qualitaCorrente = 'standard';
 const coda = [];
-let invioInCorso = false, inviatiOk = 0;
-
-let modalita = 'foto';
-let stream = null, facing = 'environment';
-let recorder = null, chunksRec = [], registrazione = false, recTimer = null, recSec = 0;
+let invioInCorso = false, inviateOk = 0;
 
 const stato = document.getElementById('stato');
+const pill = document.getElementById('pill');
 document.getElementById('link-galleria').href = '/galleria/' + token;
 document.getElementById('nome').value = localStorage.getItem('nome-invitato') || '';
 document.getElementById('nome').addEventListener('input', e =>
   localStorage.setItem('nome-invitato', e.target.value.trim()));
 
-if (!window.MediaRecorder) document.getElementById('m-video').style.display = 'none';
-
-// Nome evento, qualità, sfondo personalizzato
 fetch('/api/evento/' + token)
   .then(r => { if (!r.ok) throw new Error(); return r.json(); })
   .then(d => {
     document.getElementById('nome-evento').textContent = d.nome;
-    document.title = d.nome;
     if (LIVELLI[d.qualita]) qualitaCorrente = d.qualita;
     if (d.sfondo) {
+      document.body.classList.add('con-sfondo');
       document.body.style.backgroundImage =
-        `linear-gradient(rgba(11,16,32,.78), rgba(11,16,32,.84)), url('${d.sfondo}')`;
-      document.body.style.backgroundSize = 'cover';
-      document.body.style.backgroundPosition = 'center';
-      document.body.style.backgroundAttachment = 'fixed';
+        `linear-gradient(rgba(11,16,32,.55), rgba(11,16,32,.78)), url('${d.sfondo}')`;
     }
   })
-  .catch(() => {});
+  .catch(() => { document.getElementById('nome-evento').textContent = 'Benvenuto!'; });
 
-// ---------- FOTOCAMERA ----------
-async function avviaCamera() {
-  const vincoli = modalita === 'video'
-    ? { width: { ideal: 1280 }, height: { ideal: 720 } }   // video: file più leggeri
-    : { width:  { ideal: Math.min(LIVELLI[qualitaCorrente].max, 3840) },
-        height: { ideal: Math.min(LIVELLI[qualitaCorrente].max, 2160) } };
+// ---------- MODALITÀ FOTO / VIDEO ----------
+let modalita = 'foto';
+const videoSupportato = !!window.MediaRecorder;
+if (!videoSupportato) document.getElementById('tab-video').style.display = 'none';
+
+function setModalita(m) {
+  if (m === modalita) return;
+  if (registrando) { toast('⚠️ Ferma la registrazione prima di cambiare modalità'); return; }
+  if (m === 'video' && !videoSupportato) return;
+  modalita = m;
+  document.getElementById('tab-foto').classList.toggle('attiva', m === 'foto');
+  document.getElementById('tab-video').classList.toggle('attiva', m === 'video');
+  aggiornaPill();
+  avviaCamera(); // riapre lo stream con/senza microfono
+}
+
+function aggiornaPill() {
+  if (registrando) return;
+  pill.classList.remove('rec');
+  pill.textContent = modalita === 'foto'
+    ? 'Inquadra e premi il pulsante'
+    : 'Tocca per iniziare a registrare';
+}
+
+// ---------- FOTOCAMERA (riscritta: ciclo camere reali + pause anti-gara) ----------
+let stream = null, facing = 'environment', deviceIdCorrente = null, camere = [];
+let registrando = false, avvioInCorso = false;
+
+async function elencaCamere() {
   try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: modalita === 'video',        // audio solo per i video
-      video: { facingMode: facing, ...vincoli }
-    });
+    camere = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+  } catch (e) { camere = []; }
+}
+
+async function apriStream() {
+  const isVideo = modalita === 'video';
+  const base = deviceIdCorrente
+    ? { deviceId: { exact: deviceIdCorrente } }
+    : { facingMode: facing };
+  const tentativi = [
+    { audio: isVideo, video: { ...base, width: { ideal: isVideo ? 1920 : 3840 },
+                               height: { ideal: isVideo ? 1080 : 2160 } } },
+    { audio: isVideo, video: base },
+    { audio: false, video: { facingMode: facing } }   // ultimo tentativo: senza audio
+  ];
+  let ultimoErrore = null;
+  for (const c of tentativi) {
+    try { return await navigator.mediaDevices.getUserMedia(c); }
+    catch (e) { ultimoErrore = e; }
+  }
+  throw ultimoErrore || new Error('fotocamera non disponibile');
+}
+
+async function avviaCamera() {
+  if (avvioInCorso || registrando) return;
+  avvioInCorso = true;
+  try {
+    if (stream) {
+      stream.getTracks().forEach(t => t.stop());
+      stream = null;
+      await new Promise(r => setTimeout(r, 150)); // lascia rilasciare la camera al browser
+    }
+    stream = await apriStream();
     document.getElementById('video').srcObject = stream;
     document.getElementById('overlay-avvio').style.display = 'none';
+    const traccia = stream.getVideoTracks()[0];
+    const settaggi = traccia && traccia.getSettings ? traccia.getSettings() : {};
+    if (settaggi.deviceId) deviceIdCorrente = settaggi.deviceId;
+    if (modalita === 'video' && !stream.getAudioTracks().length) {
+      toast('🎤 Video senza audio (microfono non disponibile)');
+    }
+    elencaCamere(); // dopo il permesso arrivano anche le etichette
   } catch (e) {
     document.getElementById('overlay-avvio').style.display = 'flex';
     document.getElementById('ov-msg').textContent =
       'Permesso negato o fotocamera non disponibile. Tocca il pulsante per riprovare.';
+  } finally {
+    avvioInCorso = false;
   }
 }
 window.addEventListener('load', avviaCamera);
 
 async function cambiaCamera() {
-  if (registrazione) return;
-  facing = facing === 'environment' ? 'user' : 'environment';
-  if (stream) stream.getTracks().forEach(t => t.stop());
-  await avviaCamera();
-}
-
-// ---------- MODALITÀ FOTO / VIDEO ----------
-function aggiornaHint() {
-  const h = document.getElementById('hint');
-  if (registrazione) {
-    const mm = String(Math.floor(recSec / 60)).padStart(2, '0');
-    const ss = String(recSec % 60).padStart(2, '0');
-    h.textContent = `⏺ ${mm}:${ss} — tocca per fermare (max ${MAX_VIDEO_SEC}s)`;
-  } else if (modalita === 'video') {
-    h.textContent = 'Tocca il pulsante per registrare';
+  if (registrando || avvioInCorso) return;
+  await elencaCamere();
+  if (camere.length > 1 && camere[0].deviceId) {
+    // ciclo tra le camere REALI del dispositivo (funziona anche su Firefox)
+    const i = camere.findIndex(d => d.deviceId === deviceIdCorrente);
+    deviceIdCorrente = camere[(i + 1) % camere.length].deviceId;
   } else {
-    h.textContent = 'Inquadra e premi il pulsante';
+    facing = facing === 'environment' ? 'user' : 'environment';
+    deviceIdCorrente = null;
   }
-}
-
-async function cambiaModalita(m) {
-  if (m === modalita || registrazione) return;
-  modalita = m;
-  document.getElementById('m-foto').classList.toggle('attiva', m === 'foto');
-  document.getElementById('m-video').classList.toggle('attiva', m === 'video');
-  if (stream) stream.getTracks().forEach(t => t.stop());
   await avviaCamera();
-  aggiornaHint();
 }
 
-// ---------- SCATTO / REGISTRAZIONE ----------
-function scatta() {
-  if (modalita === 'video') { registrazione ? fermaRec() : avviaRec(); return; }
-
+function azioneScatto() {
   const v = document.getElementById('video');
   if (!stream || !v.videoWidth) { avviaCamera(); return; }
+  if (modalita === 'foto') scattaFoto();
+  else registrando ? fermaRegistrazione() : avviaRegistrazione();
+}
+
+// ---------- FOTO ----------
+function scattaFoto() {
+  const v = document.getElementById('video');
   const f = document.getElementById('flash');
   f.style.opacity = .85; setTimeout(() => f.style.opacity = 0, 120);
   const c = document.createElement('canvas');
   c.width = v.videoWidth; c.height = v.videoHeight;
   c.getContext('2d').drawImage(v, 0, 0);
   c.toBlob(b => {
-    if (b) aggiungiMedia(new File([b], 'scatto.jpg', { type: 'image/jpeg' }));
+    if (b) aggiungiMedia(new File([b], 'scatto.jpg', { type: 'image/jpeg' }), 'foto');
   }, 'image/jpeg', LIVELLI[qualitaCorrente].q);
 }
 
-function avviaRec() {
-  if (!stream) { avviaCamera(); return; }
-  const candidati = ['video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+// ---------- VIDEO (MediaRecorder) ----------
+let mediaRecorder = null, chunkVideo = [], timerInt = null, t0 = 0;
+
+function fmtDur(s) { return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+
+function avviaRegistrazione() {
+  const candidati = ['video/mp4', 'video/webm;codecs=vp9,opus',
+                     'video/webm;codecs=vp8,opus', 'video/webm'];
   const mime = candidati.find(t => MediaRecorder.isTypeSupported(t));
-  if (!mime) { toast('⚠️ Registrazione video non supportata da questo browser'); return; }
-
-  chunksRec = [];
-  recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 2500000 });
-  recorder.ondataavailable = e => { if (e.data && e.data.size) chunksRec.push(e.data); };
-  recorder.onstop = () => {
-    const mimeBase = mime.split(';')[0];
-    const ext = mimeBase === 'video/mp4' ? 'mp4' : 'webm';
-    const blob = new Blob(chunksRec, { type: mimeBase });
-    aggiungiMedia(new File([blob], 'video.' + ext, { type: mimeBase }));
-    registrazione = false;
-    clearInterval(recTimer);
+  try {
+    mediaRecorder = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 2500000 } : undefined);
+  } catch (e) { toast('⚠️ Registrazione non supportata su questo browser'); return; }
+  chunkVideo = [];
+  mediaRecorder.ondataavailable = e => { if (e.data && e.data.size) chunkVideo.push(e.data); };
+  mediaRecorder.onstop = () => {
+    clearInterval(timerInt);
+    registrando = false;
     document.getElementById('scatta').classList.remove('rec');
-    document.getElementById('rec-led').style.display = 'none';
     document.getElementById('flip').disabled = false;
-    aggiornaHint();
+    document.getElementById('tab-foto').disabled = false;
+    document.getElementById('tab-video').disabled = false;
+    aggiornaPill();
+    const tipoBlob = mediaRecorder.mimeType || 'video/webm';
+    const ext = tipoBlob.includes('mp4') ? '.mp4' : '.webm';
+    const blob = new Blob(chunkVideo, { type: tipoBlob });
+    if (blob.size > 0) aggiungiMedia(new File([blob], 'video' + ext, { type: tipoBlob }), 'video');
   };
-  recorder.start(1000);
-  registrazione = true; recSec = 0;
+  mediaRecorder.start();
+  registrando = true;
+  t0 = Date.now();
   document.getElementById('scatta').classList.add('rec');
-  document.getElementById('rec-led').style.display = 'flex';
   document.getElementById('flip').disabled = true;
-  aggiornaHint();
-  recTimer = setInterval(() => {
-    recSec++; aggiornaHint();
-    if (recSec >= MAX_VIDEO_SEC) fermaRec();
-  }, 1000);
+  document.getElementById('tab-foto').disabled = true;
+  document.getElementById('tab-video').disabled = true;
+  pill.classList.add('rec');
+  pill.textContent = '● REC 0:00 · tocca per fermare';
+  timerInt = setInterval(() => {
+    pill.textContent = '● REC ' + fmtDur(Math.floor((Date.now() - t0) / 1000)) + ' · tocca per fermare';
+  }, 500);
 }
-function fermaRec() { if (recorder && recorder.state !== 'inactive') recorder.stop(); }
 
-// ---------- CODA + INVIO ----------
-function aggiungiMedia(file) {
-  if (file.size > MAX_UPLOAD) { toast('⚠️ File troppo grande (max 100 MB)'); return; }
-  coda.push({ file, url: URL.createObjectURL(file), stato: 'attesa' });
+function fermaRegistrazione() {
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    pill.textContent = '⏳ Elaboro il video…';
+    mediaRecorder.stop();
+  }
+}
+
+// ---------- CODA MEDIA + INVIO AUTOMATICO ----------
+function aggiungiMedia(file, tipo) {
+  if (file.size > 100 * 1024 * 1024) { toast('⚠️ File troppo grande (max 100 MB)'); return; }
+  coda.push({ file, tipo: tipo || (file.type.startsWith('video/') ? 'video' : 'foto'),
+              url: URL.createObjectURL(file), stato: 'attesa' });
   disegnaCoda();
   if (document.getElementById('auto').checked) processaCoda();
   else aggiornaBottone();
@@ -322,7 +355,8 @@ function aggiungiMedia(file) {
 
 document.getElementById('file').addEventListener('change', e => {
   for (const f of e.target.files) {
-    if (f.type.startsWith('image/') || f.type.startsWith('video/')) aggiungiMedia(f);
+    if (f.type.startsWith('video/')) aggiungiMedia(f, 'video');
+    else if (f.type.startsWith('image/')) aggiungiMedia(f, 'foto');
   }
   e.target.value = '';
 });
@@ -330,24 +364,16 @@ document.getElementById('file').addEventListener('change', e => {
 function disegnaCoda() {
   const g = document.getElementById('coda');
   g.innerHTML = '';
-  coda.forEach(item => {
+  coda.forEach((item) => {
     const d = document.createElement('div');
-    d.className = 'mini' + (item.stato === 'err' ? ' err' : '');
+    d.className = 'mini' + (item.stato === 'err' ? ' err' : '') + (item.tipo === 'video' ? ' video' : '');
     if (item.stato === 'err') d.title = 'Tocca per riprovare';
     d.onclick = () => { if (item.stato === 'err') { item.stato = 'attesa'; disegnaCoda(); processaCoda(); } };
-    if (item.file.type.startsWith('video/')) {
-      const v = document.createElement('video');
-      v.src = item.url; v.muted = true; v.playsInline = true; v.preload = 'metadata';
-      d.append(v);
-    } else {
-      const img = document.createElement('img'); img.src = item.url;
-      d.append(img);
-    }
-    const t = document.createElement('span'); t.className = 'tipo';
-    if (item.file.type.startsWith('video/')) t.textContent = '🎬';
+    if (item.tipo === 'video') d.append('🎬');
+    else { const img = document.createElement('img'); img.src = item.url; d.append(img); }
     const s = document.createElement('span'); s.className = 'stato';
     s.textContent = { attesa: '⏳', invio: '⏳', ok: '✅', err: '⚠️' }[item.stato];
-    d.append(t, s); g.append(d);
+    d.append(s); g.append(d);
   });
 }
 
@@ -359,20 +385,20 @@ async function processaCoda() {
     if (!item) break;
     item.stato = 'invio'; disegnaCoda();
     try {
-      const file = await comprimi(item.file);
+      const file = item.tipo === 'video' ? item.file : await comprimi(item.file);
       const fd = new FormData();
       fd.append('token', token);
       fd.append('nome', document.getElementById('nome').value.trim() || 'Invitato');
-      fd.append('foto', file);
+      fd.append('media', file);
       const r = await fetch('/upload', { method: 'POST', body: fd });
       if (!r.ok) throw new Error();
-      item.stato = 'ok'; inviatiOk++;
-      toast(`✅ Inviato — totale: ${inviatiOk}`);
+      item.stato = 'ok'; inviateOk++;
+      toast(`✅ ${item.tipo === 'video' ? 'Video' : 'Foto'} inviato/a — totale: ${inviateOk}`);
     } catch (e) {
       item.stato = 'err';
       toast('⚠️ Invio fallito: tocca l\'elemento rosso per riprovare');
     }
-    document.getElementById('contatore').textContent = `${inviatiOk} inviati`;
+    document.getElementById('contatore').textContent = `${inviateOk} inviate`;
     disegnaCoda();
   }
   invioInCorso = false; aggiornaBottone();
@@ -389,9 +415,8 @@ function reinviaTutto() {
   disegnaCoda(); processaCoda();
 }
 
-// ---------- COMPRESSIONE (solo immagini; i video partono come sono) ----------
+// ---------- COMPRESSIONE (solo foto) ----------
 function comprimi(file) {
-  if (file.type.startsWith('video/')) return Promise.resolve(file);
   const { max, q } = LIVELLI[qualitaCorrente];
   if (file.size < 300 * 1024) return Promise.resolve(file);
   return new Promise(ok => {

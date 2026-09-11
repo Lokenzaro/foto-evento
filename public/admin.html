@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- ⬇️ PANNELLO ADMIN (admin.html) — v6 responsive -->
+<!-- ⬇️ PANNELLO ADMIN (admin.html) — v6 -->
 <html lang="it">
 <head>
 <meta charset="utf-8">
@@ -15,7 +15,6 @@
     background-image: radial-gradient(60% 45% at 15% 0%, rgba(124,58,237,.30), transparent 60%),
       radial-gradient(50% 40% at 90% 10%, rgba(236,72,153,.20), transparent 60%);
     background-attachment: fixed; }
-
   header { background: rgba(255,255,255,.05); border-bottom: 1px solid rgba(255,255,255,.1);
     padding: .8rem 1rem; display: flex; flex-wrap: wrap; gap: .6rem;
     justify-content: space-between; align-items: center; }
@@ -23,12 +22,9 @@
     background: linear-gradient(90deg, #a78bfa, #f472b6);
     -webkit-background-clip: text; background-clip: text; color: transparent; }
   header .azioni { display: flex; gap: .5rem; }
-
   main { max-width: 1080px; margin: 1.2rem auto 0; padding: 0 .8rem 2rem; }
-
   .card { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12);
     border-radius: 18px; padding: 1.1rem; margin-bottom: 1.1rem; }
-
   input, select, button { font-size: 16px; padding: .65rem .8rem; border-radius: 12px;
     border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.08); color: #fff;
     min-height: 46px; touch-action: manipulation; }
@@ -43,24 +39,22 @@
   button.cloud { background: linear-gradient(90deg, #d97706, #fbbf24); }
   button.ok { background: linear-gradient(90deg, #16a34a, #4ade80); }
   button.ghostb { background: rgba(255,255,255,.10); border: 1px dashed rgba(255,255,255,.3); }
-
-  /* --- LOGIN --- */
   #login { max-width: 380px; margin: 3.5rem auto; }
   #login input { width: 100%; margin-bottom: .7rem; }
   #login button { width: 100%; }
-
-  /* --- FORM NUOVO EVENTO --- */
   .form-grid { display: grid; gap: .6rem; grid-template-columns: 1fr; margin-bottom: .8rem; }
   @media (min-width: 680px) { .form-grid { grid-template-columns: 2fr 1fr 1fr; } }
   .form-grid input, .form-grid select { width: 100%; }
   #crea { width: 100%; min-height: 50px; }
   @media (min-width: 680px) { #crea { width: auto; } }
-
-  /* --- ELENCO EVENTI: CARD --- */
   #lista { display: grid; gap: .9rem; }
   @media (min-width: 920px) { #lista { grid-template-columns: 1fr 1fr; } }
 
-  .evento { display: flex; gap: .9rem; margin-bottom: 0; }
+  /* eventi chiusi: in fondo, opachi (gestito dall'ordine + classe) */
+  .evento.chiuso { opacity: .55; }
+  .evento.archiviato { opacity: .35; }
+
+  .evento { display: flex; gap: .9rem; }
   .evento .qr { flex: none; }
   .evento .qr img { width: 96px; height: 96px; border-radius: 10px;
     background: #fff; padding: 4px; cursor: zoom-in; }
@@ -70,27 +64,38 @@
   .badge { flex: none; padding: .25rem .6rem; border-radius: 99px; font-size: .75rem; }
   .on  { background: rgba(34,197,94,.2); color: #4ade80; }
   .off { background: rgba(239,68,68,.2); color: #f87171; }
+  .arch { background: rgba(148,163,184,.25); color: #cbd5e1; }
   .muted { color: #94a3b8; font-size: .8rem; }
   .riga2 { display: flex; justify-content: space-between; align-items: center;
     flex-wrap: wrap; gap: .5rem; margin-top: .5rem; }
   .conta { font-size: .9rem; color: #cbd5e1; }
   .riga2 select { min-height: 40px; padding: .35rem .5rem; font-size: .88rem; }
-
   .azioni { margin-top: .7rem; display: grid; gap: .45rem;
     grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
   .azioni button { display: flex; flex-direction: column; align-items: center; gap: .15rem;
     padding: .5rem .25rem; min-height: 58px; border-radius: 12px; font-size: 1.1rem; }
   .azioni button span { font-size: .7rem; font-weight: 600; line-height: 1; }
-
   .muted-note { color: #94a3b8; font-size: .82rem; margin: .8rem 0 0; }
   #msg-ripristino { margin: .3rem 0 0; font-size: .95rem; }
   .tag-versione { text-align: center; margin-top: 1.4rem; font-size: .7rem; color: #475569; }
+  .toggle-arch { display: flex; align-items: center; gap: .5rem; margin: .6rem 0 0;
+    font-size: .88rem; color: #cbd5e1; cursor: pointer; }
 
-  /* --- LIGHTBOX QR --- */
-  #lightbox { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.94); z-index: 50;
-    flex-direction: column; align-items: center; justify-content: center; gap: 1rem; padding: 1rem; }
-  #lightbox img { max-width: 92vmin; max-height: 70vh; background: #fff;
-    padding: 14px; border-radius: 14px; }
+  /* --- FINESTRE MODALI --- */
+  .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.75);
+    z-index: 60; align-items: center; justify-content: center; padding: 1rem; }
+  .modal .box { background: #141a30; border: 1px solid rgba(255,255,255,.15);
+    border-radius: 18px; padding: 1.3rem; max-width: 420px; width: 100%; }
+  .modal h3 { margin: 0 0 .4rem; }
+  .modal p { margin: 0 0 1rem; color: #94a3b8; font-size: .88rem; }
+  .modal .colonna { display: flex; flex-direction: column; gap: .5rem; }
+  .modal .colonna button { width: 100%; min-height: 50px; }
+  .lista-rip { max-height: 40vh; overflow-y: auto; display: flex; flex-direction: column;
+    gap: .35rem; margin: .6rem 0 1rem; }
+  .lista-rip label { display: flex; gap: .6rem; align-items: center; padding: .55rem .7rem;
+    background: rgba(255,255,255,.06); border-radius: 10px; font-size: .9rem; cursor: pointer; }
+  .lista-rip input { width: 18px; height: 18px; min-height: 0; }
+  .lista-rip small { color: #94a3b8; }
   .lb-azioni { display: flex; gap: .6rem; }
 </style>
 </head>
@@ -107,7 +112,7 @@
   <header>
     <h1>📸 Gestione Eventi</h1>
     <div class="azioni">
-      <button class="cloud" onclick="avviaRipristino()">☁️ Ripristina</button>
+      <button class="cloud" onclick="apriDialogRipristino()">☁️ Ripristina</button>
       <button class="gray" onclick="logout()">Esci</button>
     </div>
   </header>
@@ -136,27 +141,59 @@
     <div class="card">
       <h2 style="margin-top:0;font-size:1.1rem">I tuoi eventi</h2>
       <div id="lista"></div>
-      <p class="muted-note">💡 Tocca il QR per ingrandirlo • La qualità si applica ai media inviati da quel momento in poi.</p>
-      <p class="muted-note">🌄 «Sfondo» carica l'immagine di sfondo della pagina invitati. Gli invitati possono inviare foto e video.</p>
-      <p class="muted-note">☁️ Ogni media e un riepilogo del database vengono copiati automaticamente su MEGA.</p>
+      <label class="toggle-arch">
+        <input type="checkbox" id="vedi-archiviati" onchange="carica()" style="width:18px;height:18px">
+        Mostra anche gli eventi archiviati
+      </label>
+      <p class="muted-note">Gli eventi chiusi 🔒 restano in fondo alla pagina, attenuati; quelli attivi sono in evidenza in ordine di data.</p>
+      <p class="muted-note">🌄 «Sfondo» carica l'immagine della pagina invitati • Gli invitati inviano foto e video.</p>
+      <p class="muted-note">☁️ Su MEGA ogni evento ha la sua cartella; snapshot del database in «_sistema».</p>
     </div>
 
     <p class="tag-versione">pannello admin · v6</p>
   </main>
 </div>
 
-<div id="lightbox" onclick="chiudiLB()">
-  <img id="bigqr" src="" alt="QR code">
+<!-- LIGHTBOX QR -->
+<div id="lightbox" class="modal" onclick="chiudi('lightbox')">
+  <img id="bigqr" src="" alt="QR code" style="max-width:92vmin;max-height:70vh;background:#fff;padding:14px;border-radius:14px;">
   <div class="lb-azioni" onclick="event.stopPropagation()">
     <button onclick="scaricaQR(qrCorrente)">⬇️ Scarica</button>
-    <button class="gray" onclick="chiudiLB()">Chiudi</button>
+    <button class="gray" onclick="chiudi('lightbox')">Chiudi</button>
+  </div>
+</div>
+
+<!-- MODALE ELIMINAZIONE CON SCELTA -->
+<div id="dlg-elimina" class="modal">
+  <div class="box">
+    <h3 id="elim-titolo">Eliminare l'evento?</h3>
+    <p>Scegli cosa fare. L'archiviazione è reversibile: le foto restano al sicuro su MEGA.</p>
+    <div class="colonna">
+      <button class="gray"  onclick="confermaElimina('archivia')">📦 Archivia: nascondi dall'elenco<br><small style="font-weight:400">mantiene le foto su MEGA</small></button>
+      <button class="danger" onclick="confermaElimina('tutto')">🗑️ Elimina definitivamente<br><small style="font-weight:400">cancella tutto, anche da MEGA</small></button>
+      <button onclick="chiudi('dlg-elimina')" style="background:transparent;border:1px solid rgba(255,255,255,.25)">Annulla</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODALE RIPRISTINO SELETTIVO -->
+<div id="dlg-ripristino" class="modal">
+  <div class="box">
+    <h3>☁️ Ripristino dal backup MEGA</h3>
+    <p>Scegli gli eventi da riportare sul server. Ciò che esiste già non viene toccato.</p>
+    <div id="lista-rip" class="lista-rip"><p class="muted">Caricamento…</p></div>
+    <div class="colonna">
+      <button class="gray" onclick="selezionaTutti()">☑️ Seleziona tutti / nessuno</button>
+      <button onclick="confermaRipristino()">▶️ Avvia il ripristino</button>
+      <button onclick="chiudi('dlg-ripristino')" style="background:transparent;border:1px solid rgba(255,255,255,.25)">Annulla</button>
+    </div>
   </div>
 </div>
 
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let qrCorrente = '';
+let qrCorrente = '', idDaEliminare = null;
 
 async function login() {
   const r = await fetch('/admin/login', { method:'POST',
@@ -165,47 +202,65 @@ async function login() {
 }
 async function logout() { await fetch('/admin/logout', { method:'POST' }); location.reload(); }
 function entra() { $('#login').style.display='none'; $('#pannello').style.display='block'; carica(); }
+function chiudi(id) { document.getElementById(id).style.display = 'none'; }
 
 async function carica() {
   const eventi = await (await fetch('/api/eventi')).json();
-  $('#lista').innerHTML = eventi.map(e => `
-    <div class="evento card">
-      <div class="qr" onclick="mostraQR('${e.token}')">
-        <img src="/qr/${e.token}" alt="QR ${esc(e.nome)}">
-      </div>
-      <div class="info">
-        <div class="riga1">
-          <span class="nome">${esc(e.nome)}</span>
-          <span class="badge ${e.attivo ? 'on' : 'off'}">${e.attivo ? 'Attivo' : 'Chiuso'}</span>
+  const vediArchiviati = $('#vedi-archiviati').checked;
+
+  // 1) attivi (ordine cronologico per data) 2) chiusi 3) archiviati
+  eventi.sort((a, b) => {
+    const ar = (x) => x.archiviato ? 2 : (x.attivo ? 0 : 1);
+    if (ar(a) !== ar(b)) return ar(a) - ar(b);
+    const da = a.data_evento || '9999-99-99', db = b.data_evento || '9999-99-99';
+    if (da !== db) return da < db ? -1 : 1;
+    return a.id - b.id;
+  });
+
+  $('#lista').innerHTML = eventi
+    .filter(e => vediArchiviati || !e.archiviato)
+    .map(e => {
+      const classe = e.archiviato ? 'evento card archiviato' : (e.attivo ? 'evento card' : 'evento card chiuso');
+      const badge = e.archiviato ? '<span class="badge arch">Archiviato</span>'
+        : (e.attivo ? '<span class="badge on">Attivo</span>' : '<span class="badge off">Chiuso</span>');
+      const azioniArchiviato = `
+        <button class="teal" onclick="dearchivia(${e.id})">↩️<span>Riporta in elenco</span></button>
+        <button onclick="galleria('${e.token}')">🖼️<span>Galleria</span></button>
+        <button class="danger" onclick="elimina(${e.id})">🗑️<span>Elimina</span></button>`;
+      const azioniNormali = `
+        <button onclick="copia('${e.link}')">📋<span>Link</span></button>
+        <button onclick="scaricaQR('${e.token}')">⬇️<span>QR</span></button>
+        <button class="teal" onclick="galleria('${e.token}')">🖼️<span>Galleria</span></button>
+        <button class="${e.sfondo ? 'ok' : 'ghostb'}" onclick="scegliSfondo(${e.id})">${e.sfondo ? '✓' : ''}🌄<span>Sfondo</span></button>
+        ${e.sfondo ? `<button class="danger" onclick="rimuoviSfondo(${e.id})">✕<span>Togli sf.</span></button>` : ''}
+        <button class="gray" onclick="toggle(${e.id})">${e.attivo ? '🔒<span>Chiudi</span>' : '🔓<span>Apri</span>'}</button>
+        <button class="danger" onclick="elimina(${e.id})">🗑️<span>Elimina</span></button>`;
+      return `
+      <div class="${classe}">
+        <div class="qr" onclick="mostraQR('${e.token}')">
+          <img src="/qr/${e.token}" alt="QR ${esc(e.nome)}">
         </div>
-        <div class="muted">/e/${e.token}${e.data_evento ? ' · ' + esc(e.data_evento) : ''}</div>
-        <div class="riga2">
-          <span class="conta">🎞️ <strong>${e.num_foto}</strong> media</span>
-          <select onchange="cambiaQualita(${e.id}, this.value)">
-            <option value="risparmio" ${e.qualita==='risparmio'?'selected':''}>🟢 1280 px</option>
-            <option value="standard"  ${e.qualita==='standard' || !e.qualita ?'selected':''}>🔵 1920 px</option>
-            <option value="massima"   ${e.qualita==='massima'?'selected':''}>🔴 4000 px</option>
-          </select>
+        <div class="info">
+          <div class="riga1">
+            <span class="nome">${esc(e.nome)}</span>
+            ${badge}
+          </div>
+          <div class="muted">/e/${e.token}${e.data_evento ? ' · ' + esc(e.data_evento) : ''}</div>
+          <div class="riga2">
+            <span class="conta">🎞️ <strong>${e.num_foto}</strong> media</span>
+            <select onchange="cambiaQualita(${e.id}, this.value)">
+              <option value="risparmio" ${e.qualita==='risparmio'?'selected':''}>🟢 1280 px</option>
+              <option value="standard"  ${e.qualita==='standard' || !e.qualita ?'selected':''}>🔵 1920 px</option>
+              <option value="massima"   ${e.qualita==='massima'?'selected':''}>🔴 4000 px</option>
+            </select>
+          </div>
+          <div class="azioni">${e.archiviato ? azioniArchiviato : azioniNormali}</div>
         </div>
-        <div class="azioni">
-          <button onclick="copia('${e.link}')">📋<span>Link</span></button>
-          <button onclick="scaricaQR('${e.token}')">⬇️<span>QR</span></button>
-          <button class="teal" onclick="galleria('${e.token}')">🖼️<span>Galleria</span></button>
-          <button class="${e.sfondo ? 'ok' : 'ghostb'}" onclick="scegliSfondo(${e.id})">${e.sfondo ? '✓' : ''}🌄<span>Sfondo</span></button>
-          ${e.sfondo ? `<button class="danger" onclick="rimuoviSfondo(${e.id})">✕<span>Togli sf.</span></button>` : ''}
-          <button class="gray" onclick="toggle(${e.id})">${e.attivo ? '🔒<span>Chiudi</span>' : '🔓<span>Apri</span>'}</button>
-          <button class="danger" onclick="elimina(${e.id})">🗑️<span>Elimina</span></button>
-        </div>
-      </div>
-    </div>`).join('');
+      </div>`;
+    }).join('');
 }
 
-function mostraQR(t) {
-  qrCorrente = t;
-  $('#bigqr').src = `/qr/${t}`;
-  $('#lightbox').style.display = 'flex';
-}
-function chiudiLB() { $('#lightbox').style.display = 'none'; }
+function mostraQR(t) { qrCorrente = t; $('#bigqr').src = `/qr/${t}`; $('#lightbox').style.display = 'flex'; }
 function scaricaQR(t) { const a = document.createElement('a'); a.href = `/qr/${t}`; a.download = `qr-${t}.png`; a.click(); }
 function copia(l) { navigator.clipboard.writeText(l); alert('Link copiato:\n' + l); }
 function galleria(t) { window.open('/galleria/' + t, '_blank'); }
@@ -227,12 +282,10 @@ async function cambiaQualita(id, qualita) {
 
 function scegliSfondo(id) {
   const input = document.createElement('input');
-  input.type = 'file';
-  input.accept = 'image/*';
+  input.type = 'file'; input.accept = 'image/*';
   input.onchange = async () => {
     if (!input.files[0]) return;
-    const fd = new FormData();
-    fd.append('sfondo', input.files[0]);
+    const fd = new FormData(); fd.append('sfondo', input.files[0]);
     const r = await fetch(`/api/eventi/${id}/sfondo`, { method: 'POST', body: fd });
     const d = await r.json();
     if (!r.ok) return alert(d.errore || 'Errore caricamento sfondo');
@@ -242,33 +295,67 @@ function scegliSfondo(id) {
 }
 async function rimuoviSfondo(id) {
   if (!confirm('Rimuovere l\'immagine di sfondo di questo evento?')) return;
-  await fetch(`/api/eventi/${id}/sfondo`, { method: 'DELETE' });
-  carica();
+  await fetch(`/api/eventi/${id}/sfondo`, { method: 'DELETE' }); carica();
 }
 
 async function toggle(id) { await fetch(`/api/eventi/${id}/toggle`, { method:'POST' }); carica(); }
-async function elimina(id) {
-  if (!confirm('Eliminare definitivamente questo evento? Verranno cancellati anche foto, video e sfondo (anche dal backup MEGA).')) return;
-  await fetch(`/api/eventi/${id}`, { method:'DELETE' }); carica();
+async function dearchivia(id) { await fetch(`/api/eventi/${id}/dearchivia`, { method:'POST' }); carica(); }
+
+// --- ELIMINAZIONE CON SCELTA ---
+function elimina(id) {
+  idDaEliminare = id;
+  $('#dlg-elimina').style.display = 'flex';
+}
+async function confermaElimina(modo) {
+  chiudi('dlg-elimina');
+  if (idDaEliminare === null) return;
+  await fetch(`/api/eventi/${idDaEliminare}?modo=${modo}`, { method: 'DELETE' });
+  idDaEliminare = null;
+  carica();
 }
 
-let timerRipristino = null;
-async function avviaRipristino() {
-  if (!confirm('Ripristinare eventi, foto, video e sfondi dal backup MEGA?\n\n' +
-      'Operazione SICURA: vengono riaggiunti solo gli elementi mancanti.')) return;
-  const r = await fetch('/admin/ripristino', { method: 'POST' });
+// --- RIPRISTINO SELETTIVO ---
+async function apriDialogRipristino() {
+  const box = $('#lista-rip');
+  box.innerHTML = '<p class="muted">Caricamento dal backup MEGA…</p>';
+  $('#dlg-ripristino').style.display = 'flex';
+  const r = await fetch('/admin/eventi-mega');
+  const d = await r.json();
+  if (!r.ok) { chiudi('dlg-ripristino'); return alert(d.errore || 'MEGA non disponibile'); }
+  if (!d.length) {
+    box.innerHTML = '<p class="muted">Nessun evento trovato nel backup MEGA.</p>';
+    return;
+  }
+  box.innerHTML = d.map(e => `
+    <label>
+      <input type="checkbox" class="rip-token" value="${e.token}" checked>
+      <span><strong>${esc(e.nome)}</strong><br>
+      <small>${e.token} · ${e.num_media} media${e.gia_presente ? ' · già sul server' : ''}</small></span>
+    </label>`).join('');
+}
+function selezionaTutti() {
+  const ck = [...document.querySelectorAll('.rip-token')];
+  const tutti = ck.every(c => c.checked);
+  ck.forEach(c => c.checked = !tutti);
+}
+async function confermaRipristino() {
+  const tokens = [...document.querySelectorAll('.rip-token:checked')].map(c => c.value);
+  if (!tokens.length) return alert('Seleziona almeno un evento');
+  chiudi('dlg-ripristino');
+  const r = await fetch('/admin/ripristino', { method: 'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tokens }) });
   const d = await r.json();
   if (!r.ok) return alert(d.errore || 'Errore avvio ripristino');
   $('#ripristino').style.display = 'block';
-  clearInterval(timerRipristino);
-  timerRipristino = setInterval(statoRipristino, 2000);
+  clearInterval(window._tRip);
+  window._tRip = setInterval(statoRipristino, 2000);
   statoRipristino();
 }
 async function statoRipristino() {
   try {
     const s = await (await fetch('/admin/stato-ripristino')).json();
     $('#msg-ripristino').textContent = s.messaggio || '';
-    if (!s.in_corso) { clearInterval(timerRipristino); carica(); }
+    if (!s.in_corso) { clearInterval(window._tRip); carica(); }
   } catch (e) {}
 }
 
