@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- ⬇️ PANNELLO ADMIN (admin.html) — v6 -->
+<!-- ⬇️ PANNELLO ADMIN (admin.html) — v6.3 responsive -->
 <html lang="it">
 <head>
 <meta charset="utf-8">
@@ -21,7 +21,7 @@
   header h1 { margin: 0; font-size: clamp(1.05rem, 4.5vw, 1.3rem); font-weight: 800;
     background: linear-gradient(90deg, #a78bfa, #f472b6);
     -webkit-background-clip: text; background-clip: text; color: transparent; }
-  header .azioni { display: flex; gap: .5rem; }
+  header .azioni { display: flex; gap: .5rem; flex-wrap: wrap; }
   main { max-width: 1080px; margin: 1.2rem auto 0; padding: 0 .8rem 2rem; }
   .card { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12);
     border-radius: 18px; padding: 1.1rem; margin-bottom: 1.1rem; }
@@ -49,11 +49,8 @@
   @media (min-width: 680px) { #crea { width: auto; } }
   #lista { display: grid; gap: .9rem; }
   @media (min-width: 920px) { #lista { grid-template-columns: 1fr 1fr; } }
-
-  /* eventi chiusi: in fondo, opachi (gestito dall'ordine + classe) */
   .evento.chiuso { opacity: .55; }
   .evento.archiviato { opacity: .35; }
-
   .evento { display: flex; gap: .9rem; }
   .evento .qr { flex: none; }
   .evento .qr img { width: 96px; height: 96px; border-radius: 10px;
@@ -80,8 +77,6 @@
   .tag-versione { text-align: center; margin-top: 1.4rem; font-size: .7rem; color: #475569; }
   .toggle-arch { display: flex; align-items: center; gap: .5rem; margin: .6rem 0 0;
     font-size: .88rem; color: #cbd5e1; cursor: pointer; }
-
-  /* --- FINESTRE MODALI --- */
   .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.75);
     z-index: 60; align-items: center; justify-content: center; padding: 1rem; }
   .modal .box { background: #141a30; border: 1px solid rgba(255,255,255,.15);
@@ -113,13 +108,14 @@
     <h1>📸 Gestione Eventi</h1>
     <div class="azioni">
       <button class="cloud" onclick="apriDialogRipristino()">☁️ Ripristina</button>
+      <button class="cloud" onclick="avviaConversione()">🛠️ Converti video</button>
       <button class="gray" onclick="logout()">Esci</button>
     </div>
   </header>
   <main>
 
     <div id="ripristino" class="card" style="display:none">
-      <h2 style="margin-top:0;font-size:1.05rem">☁️ Ripristino dal backup MEGA</h2>
+      <h2 style="margin-top:0;font-size:1.05rem">☁️ Operazione in corso (ripristino / conversione)</h2>
       <p id="msg-ripristino">Avvio…</p>
       <p class="muted">Puoi lasciare aperta questa pagina: lo stato si aggiorna da solo ogni 2 secondi.</p>
     </div>
@@ -146,11 +142,11 @@
         Mostra anche gli eventi archiviati
       </label>
       <p class="muted-note">Gli eventi chiusi 🔒 restano in fondo alla pagina, attenuati; quelli attivi sono in evidenza in ordine di data.</p>
-      <p class="muted-note">🌄 «Sfondo» carica l'immagine della pagina invitati • Gli invitati inviano foto e video.</p>
-      <p class="muted-note">☁️ Su MEGA ogni evento ha la sua cartella; snapshot del database in «_sistema».</p>
+      <p class="muted-note">🌄 «Sfondo» carica l'immagine della pagina invitati • Gli invitati inviano foto e video (i video iPhone vengono convertiti automaticamente in MP4).</p>
+      <p class="muted-note">☁️ Su MEGA ogni evento ha la sua cartella dentro «FOTO-EVENTI»; snapshot del database in «_sistema».</p>
     </div>
 
-    <p class="tag-versione">pannello admin · v6</p>
+    <p class="tag-versione">pannello admin · v6.3</p>
   </main>
 </div>
 
@@ -208,7 +204,6 @@ async function carica() {
   const eventi = await (await fetch('/api/eventi')).json();
   const vediArchiviati = $('#vedi-archiviati').checked;
 
-  // 1) attivi (ordine cronologico per data) 2) chiusi 3) archiviati
   eventi.sort((a, b) => {
     const ar = (x) => x.archiviato ? 2 : (x.attivo ? 0 : 1);
     if (ar(a) !== ar(b)) return ar(a) - ar(b);
@@ -301,7 +296,6 @@ async function rimuoviSfondo(id) {
 async function toggle(id) { await fetch(`/api/eventi/${id}/toggle`, { method:'POST' }); carica(); }
 async function dearchivia(id) { await fetch(`/api/eventi/${id}/dearchivia`, { method:'POST' }); carica(); }
 
-// --- ELIMINAZIONE CON SCELTA ---
 function elimina(id) {
   idDaEliminare = id;
   $('#dlg-elimina').style.display = 'flex';
@@ -351,6 +345,19 @@ async function confermaRipristino() {
   window._tRip = setInterval(statoRipristino, 2000);
   statoRipristino();
 }
+
+// --- CONVERSIONE VIDEO MANUALE ---
+async function avviaConversione() {
+  const r = await fetch('/admin/converti-video', { method: 'POST' });
+  const d = await r.json();
+  if (!r.ok) return alert(d.errore || 'Errore avvio conversione');
+  if (d.nessuno) return alert('Tutti i video sono già in MP4: niente da convertire.');
+  $('#ripristino').style.display = 'block';
+  clearInterval(window._tRip);
+  window._tRip = setInterval(statoRipristino, 2000);
+  statoRipristino();
+}
+
 async function statoRipristino() {
   try {
     const s = await (await fetch('/admin/stato-ripristino')).json();

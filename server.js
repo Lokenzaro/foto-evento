@@ -1,7 +1,7 @@
 // ============================================================
-//  SERVER - App foto/video evento con QR code — v6.2
-//  MEGA: /FOTO-EVENTI/<Evento [TOKEN]>/ via File.mkdir/upload
-//  + refresh indice + elenco ripristino basato sui file reali
+//  SERVER - App foto/video evento con QR code — v6.3
+//  + conversione automatica video in MP4 (ffmpeg) e anteprime
+//  MEGA: /FOTO-EVENTI/<Evento [TOKEN]>/
 // ============================================================
 
 const express = require('express');
@@ -12,6 +12,7 @@ const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { execFile } = require('child_process');
 const QRCode = require('qrcode');
 
 function rilevaIPLocale() {
@@ -37,6 +38,10 @@ const ESTENSIONI = {
 };
 const EST_MEDIA = ['jpg','jpeg','png','gif','webp','heic','heif','webm','mp4','mov','mkv','3gp'];
 const EST_VIDEO = ['.webm', '.mp4', '.mov', '.mkv', '.3gp'];
+
+// ffmpeg (binario statico installato con npm)
+let FFMPEG_PATH = null;
+try { FFMPEG_PATH = require('ffmpeg-static'); } catch (e) { FFMPEG_PATH = null; }
 
 // ---------- DATABASE ----------
 const db = new Database(path.join(DATA_DIR, 'database.db'));
@@ -99,10 +104,7 @@ if (process.env.MEGA_EMAIL && process.env.MEGA_PASSWORD) {
 }
 
 // ============================================================
-//  LIVELLO MEGA — API sicure:
-//  · creazione/upload chiamati DIRETTAMENTE sul nodo cartella
-//  · dopo ogni creazione: refresh indice e ritrovo per NOME
-//  · figli individuati via parentNodeId (campo certo)
+//  LIVELLO MEGA
 // ============================================================
 const RADICE_MEGA = 'FOTO-EVENTI';
 const CART_SISTEMA = '_sistema';
@@ -259,6 +261,15 @@ function eliminaPiattiMega(prefisso) {
   nodiMega().forEach(f => { if (f.name && f.name.startsWith(prefisso)) cancellaNodoMega(f); });
 }
 
+// rimuove dalla cartella MEGA dell'evento un file col vecchio nome
+// (usato dopo la conversione: via l'originale .mov, resta il .mp4)
+function eliminaNomeDaCartellaEvento(token, nome) {
+  if (!megaStorage || !megaPronto) return;
+  const cartella = trovaCartellaEvento(token);
+  if (cartella) figliDi(cartella).forEach(f => { if (f.name === nome) cancellaNodoMega(f); });
+  nodiMega().forEach(f => { if (f.name === `${token}_${nome}`) cancellaNodoMega(f); });
+}
+
 function eliminaSfondiMega(token) {
   if (!megaStorage || !megaPronto) return;
   const cartella = trovaCartellaEvento(token);
@@ -277,7 +288,108 @@ function eliminaCartellaEvento(token) {
   delete megaCache.eventi[token];
 }
 
-// ---------- SNAPSHOT SU MEGA (debounce 15 s, retry se MEGA non pronto) ----------
+// ============================================================
+//  CONVERSIONE VIDEO IN MP4 (ffmpeg, coda seriale)
+// ============================================================
+const codaVideo = [];
+let conversioneAttiva = false;
+let convTotali = 0, convFatte = 0;
+
+function accodaConversioneVideo(ev, filename) {
+  if (!FFMPEG_PATH) { // niente ffmpeg: backup dell'originale e basta
+    const origine = path.join(CARTELLA_FOTO, filename);
+    if (fs.existsSync(origine)) backupMega(origine, filename, ev);
+    return;
+  }
+  codaVideo.push({ ev, filename });
+  avviaConversioni();
+}
+
+function avviaConversioni() {
+  if (conversioneAttiva) return;
+  const job = codaVideo.shift();
+  if (!job) return;
+  conversioneAttiva = true;
+  preparaVideo(job.ev, job.filename, () => {
+    conversioneAttiva = false;
+    avviaConversioni();
+  });
+}
+
+function eseguiFfmpeg(args, timeoutMs, cb) {
+  if (!FFMPEG_PATH) return cb(new Error('ffmpeg non disponibile'));
+  execFile(FFMPEG_PATH, args, { timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024 },
+    (err) => cb(err || null));
+}
+
+// converte un video in MP4 H.264, genera l'anteprima jpg, aggiorna DB e MEGA
+function preparaVideo(ev, filename, done) {
+  const fine = (ok) => {
+    if (convTotali > 0) {
+      convFatte++;
+      if (convFatte >= convTotali) {
+        ripristino.in_corso = false;
+        ripristino.messaggio = `✅ Conversione completata: ${convFatte} video in MP4.`;
+        convTotali = 0; convFatte = 0;
+        programmaSnapshot(3000);
+      }
+    }
+    if (done) done(ok);
+  };
+
+  const origine = path.join(CARTELLA_FOTO, filename);
+  if (!fs.existsSync(origine)) return fine(false);
+  if (!FFMPEG_PATH) {
+    console.warn('🎬 ffmpeg non disponibile: mantengo', filename);
+    backupMega(origine, filename, ev);
+    return fine(false);
+  }
+
+  const base = crypto.randomBytes(12).toString('hex');
+  const mp4 = base + '.mp4';
+  const tmp = path.join(CARTELLA_FOTO, base + '.tmp.mp4');
+  const poster = path.join(CARTELLA_FOTO, mp4 + '.jpg');
+  console.log(`🎬 Conversione in corso: ${filename} → MP4…`);
+
+  const args = ['-y', '-i', origine,
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '26',
+    '-vf', "scale='min(1280,iw)':-2",
+    '-c:a', 'aac', '-b:a', '128k',
+    '-movflags', '+faststart', tmp];
+
+  eseguiFfmpeg(args, 15 * 60 * 1000, (err) => {
+    if (err || !fs.existsSync(tmp) || fs.statSync(tmp).size === 0) {
+      console.error('🎬 Conversione fallita per', filename, err ? err.message : '');
+      try { fs.unlinkSync(tmp); } catch (e) {}
+      backupMega(origine, filename, ev); // almeno l'originale resta in backup
+      return fine(false);
+    }
+    // sostituisce il file e aggiorna il database (ordine sicuro)
+    fs.renameSync(tmp, path.join(CARTELLA_FOTO, mp4));
+    db.prepare('UPDATE foto SET filename = ? WHERE evento_token = ? AND filename = ?')
+      .run(mp4, ev.token, filename);
+    try { fs.unlinkSync(origine); } catch (e) {}
+
+    // anteprima jpg (fotogramma a 1 s; fallback al primo fotogramma)
+    const generaPoster = (argsPoster) =>
+      eseguiFfmpeg(argsPoster, 2 * 60 * 1000, () => {
+        if (!fs.existsSync(poster))
+          eseguiFfmpeg(['-y', '-i', path.join(CARTELLA_FOTO, mp4),
+            '-vframes', '1', '-vf', 'scale=480:-2', poster], 2 * 60 * 1000, () => {});
+      });
+    generaPoster(['-y', '-ss', '1', '-i', path.join(CARTELLA_FOTO, mp4),
+      '-vframes', '1', '-vf', 'scale=480:-2', poster]);
+
+    // su MEGA: via l'originale, dentro il MP4 riproducibile
+    eliminaNomeDaCartellaEvento(ev.token, filename);
+    backupMega(path.join(CARTELLA_FOTO, mp4), mp4, ev);
+    console.log(`🎬 Convertito: ${filename} → ${mp4}`);
+    programmaSnapshot();
+    fine(true);
+  });
+}
+
+// ---------- SNAPSHOT SU MEGA ----------
 let snapshotTimer = null;
 let snapshotInAttesa = false;
 function programmaSnapshot(ritardo = 15000) {
@@ -482,13 +594,25 @@ app.get('/galleria/:token', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'galleria.html'));
 });
 
+// ---------- CARICAMENTO FOTO E VIDEO ----------
 app.post('/upload', caricamento.single('media'), (req, res) => {
   const ev = db.prepare('SELECT token, nome FROM eventi WHERE token = ? AND attivo = 1').get(req.body.token);
   if (!ev) return res.status(403).json({ errore: 'Evento non valido o chiuso' });
   const tipo = req.file.mimetype.startsWith('video/') ? 'video' : 'foto';
   db.prepare('INSERT INTO foto (evento_token, filename, invitato, tipo) VALUES (?, ?, ?, ?)')
     .run(ev.token, req.file.filename, (req.body.nome || 'Invitato').slice(0, 50), tipo);
-  backupMega(req.file.path, req.file.filename, ev);
+
+  if (tipo === 'video') {
+    if (req.file.mimetype === 'video/mp4') {
+      // già MP4 (registrazioni in-app iOS/Android): solo backup
+      backupMega(req.file.path, req.file.filename, ev);
+    } else {
+      // .mov iPhone, .webm Android ecc.: conversione in background
+      accodaConversioneVideo(ev, req.file.filename);
+    }
+  } else {
+    backupMega(req.file.path, req.file.filename, ev);
+  }
   programmaSnapshot();
   res.json({ ok: true, tipo });
 });
@@ -578,7 +702,29 @@ app.post('/admin/ripristino', soloAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/admin/stato-ripristino', soloAdmin, (req, res) => res.json(ripristino));
+// conversione manuale di tutti i video non-MP4
+app.post('/admin/converti-video', soloAdmin, (req, res) => {
+  if (!FFMPEG_PATH) return res.status(400).json({ errore: 'ffmpeg non disponibile sul server' });
+  if (ripristino.in_corso) return res.json({ ok: true });
+  const candidati = db.prepare(`
+    SELECT f.filename, f.evento_token, e.nome
+    FROM foto f JOIN eventi e ON e.token = f.evento_token
+    WHERE f.tipo = 'video' AND LOWER(f.filename) NOT LIKE '%.mp4'
+  `).all();
+  if (!candidati.length) return res.json({ ok: true, nessuno: true });
+  ripristino.in_corso = true;
+  ripristino.eventi = 0; ripristino.media = 0; ripristino.errori = 0; ripristino.totale = candidati.length;
+  convTotali = candidati.length; convFatte = 0;
+  ripristino.messaggio = `🎬 Conversione video 0/${candidati.length}…`;
+  for (const c of candidati) accodaConversioneVideo({ token: c.evento_token, nome: c.nome }, c.filename);
+  res.json({ ok: true });
+});
+
+app.get('/admin/stato-ripristino', soloAdmin, (req, res) => {
+  const r = { ...ripristino };
+  if (r.in_corso && convTotali > 0) r.messaggio = `🎬 Conversione video ${convFatte}/${convTotali}…`;
+  res.json(r);
+});
 
 function applicaMeta(dati, tokens) {
   const insEvento = db.prepare(`INSERT INTO eventi
@@ -737,6 +883,12 @@ function scaricaSelezionati(tokens, done) {
               .run(t.token, t.filename, 'Invitato', quando, tipo);
             ripristino.media++;
           }
+          // video non-MP4 appena ripristinati → coda di conversione
+          const extR = path.extname(t.filename).toLowerCase();
+          if (EST_VIDEO.includes(extR) && extR !== '.mp4') {
+            const evR = db.prepare('SELECT token, nome FROM eventi WHERE token = ?').get(t.token);
+            if (evR) accodaConversioneVideo(evR, t.filename);
+          }
         } catch (e) { ripristino.errori++; }
       }
       prossima();
@@ -751,4 +903,19 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`✅ Server avviato sulla porta ${PORT}`);
   console.log(`   Pannello admin:  ${URL_BASE}/admin`);
+  console.log(`🎬 ffmpeg: ${FFMPEG_PATH ? 'disponibile' : 'NON disponibile'}`);
+  // i video vecchi non-MP4 già in archivio vengono convertiti automaticamente
+  try {
+    if (FFMPEG_PATH) {
+      const vecchi = db.prepare(`
+        SELECT f.filename, f.evento_token, e.nome
+        FROM foto f JOIN eventi e ON e.token = f.evento_token
+        WHERE f.tipo = 'video' AND LOWER(f.filename) NOT LIKE '%.mp4'
+      `).all();
+      if (vecchi.length) {
+        console.log(`🎬 Trovati ${vecchi.length} video da convertire: avvio…`);
+        for (const v of vecchi) accodaConversioneVideo({ token: v.evento_token, nome: v.nome }, v.filename);
+      }
+    }
+  } catch (e) { console.error('🎬 Sweep video:', e.message); }
 });

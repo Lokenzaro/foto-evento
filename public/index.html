@@ -145,7 +145,7 @@
   </div>
 
   <a class="link-galleria" id="link-galleria" href="#">🖼️ Vedi la galleria dell'evento →</a>
-  <p class="tag-versione">pagina invitato · v6</p>
+  <p class="tag-versione">pagina invitato · v6.3</p>
 </div>
 
 <script>
@@ -203,7 +203,7 @@ function aggiornaPill() {
     : 'Tocca per iniziare a registrare';
 }
 
-// ---------- FOTOCAMERA (riscritta: ciclo camere reali + pause anti-gara) ----------
+// ---------- FOTOCAMERA (ciclo camere reali + pause anti-gara) ----------
 let stream = null, facing = 'environment', deviceIdCorrente = null, camere = [];
 let registrando = false, avvioInCorso = false;
 
@@ -222,7 +222,7 @@ async function apriStream() {
     { audio: isVideo, video: { ...base, width: { ideal: isVideo ? 1920 : 3840 },
                                height: { ideal: isVideo ? 1080 : 2160 } } },
     { audio: isVideo, video: base },
-    { audio: false, video: { facingMode: facing } }   // ultimo tentativo: senza audio
+    { audio: false, video: { facingMode: facing } }
   ];
   let ultimoErrore = null;
   for (const c of tentativi) {
@@ -239,7 +239,7 @@ async function avviaCamera() {
     if (stream) {
       stream.getTracks().forEach(t => t.stop());
       stream = null;
-      await new Promise(r => setTimeout(r, 150)); // lascia rilasciare la camera al browser
+      await new Promise(r => setTimeout(r, 150));
     }
     stream = await apriStream();
     document.getElementById('video').srcObject = stream;
@@ -250,7 +250,7 @@ async function avviaCamera() {
     if (modalita === 'video' && !stream.getAudioTracks().length) {
       toast('🎤 Video senza audio (microfono non disponibile)');
     }
-    elencaCamere(); // dopo il permesso arrivano anche le etichette
+    elencaCamere();
   } catch (e) {
     document.getElementById('overlay-avvio').style.display = 'flex';
     document.getElementById('ov-msg').textContent =
@@ -265,7 +265,6 @@ async function cambiaCamera() {
   if (registrando || avvioInCorso) return;
   await elencaCamere();
   if (camere.length > 1 && camere[0].deviceId) {
-    // ciclo tra le camere REALI del dispositivo (funziona anche su Firefox)
     const i = camere.findIndex(d => d.deviceId === deviceIdCorrente);
     deviceIdCorrente = camere[(i + 1) % camere.length].deviceId;
   } else {
