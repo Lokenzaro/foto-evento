@@ -494,9 +494,9 @@ app.post('/upload', caricamento.single('media'), (req, res) => {
 });
 
 // ---------- ELENCO BACKUP: SOLO eventi con file reali su MEGA ----------
-app.get('/admin/eventi-mega', soloAdmin, async (req, res) => {
+app.get('/admin/eventi-mega', soloAdmin, (req, res) => {
   if (!megaStorage || !megaPronto) return res.status(400).json({ errore: 'MEGA non configurato' });
-  aggiornaIndice(() => {
+  aggiornaIndice(async () => {
     try {
       const lista = {};
       const conContenuto = new Set();
@@ -554,7 +554,9 @@ app.get('/admin/eventi-mega', soloAdmin, async (req, res) => {
         ...e,
         gia_presente: !!db.prepare('SELECT id FROM eventi WHERE token = ?').get(e.token)
       })));
-    } catch (e) { res.status(500).json({ errore: e.message }); }
+    } catch (e) {
+      if (!res.headersSent) res.status(500).json({ errore: e.message });
+    }
   });
 });
 
