@@ -1,46 +1,97 @@
 <!DOCTYPE html>
-<!-- ⬇️ PANNELLO ADMIN (admin.html) -->
+<!-- ⬇️ PANNELLO ADMIN (admin.html) — v6 responsive -->
 <html lang="it">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0b1020">
 <title>Admin – Foto Evento</title>
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;800&display=swap" rel="stylesheet">
 <style>
-  * { box-sizing: border-box; font-family: 'Sora', system-ui, sans-serif; }
+  * { box-sizing: border-box; font-family: 'Sora', system-ui, sans-serif;
+      -webkit-tap-highlight-color: transparent; }
   body { margin: 0; background: #0b1020; color: #e2e8f0;
+    -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
     background-image: radial-gradient(60% 45% at 15% 0%, rgba(124,58,237,.30), transparent 60%),
       radial-gradient(50% 40% at 90% 10%, rgba(236,72,153,.20), transparent 60%);
     background-attachment: fixed; }
+
   header { background: rgba(255,255,255,.05); border-bottom: 1px solid rgba(255,255,255,.1);
-    padding: 1rem 1.5rem; display: flex; justify-content: space-between; align-items: center; }
-  header h1 { margin: 0; font-size: 1.3rem; font-weight: 800;
+    padding: .8rem 1rem; display: flex; flex-wrap: wrap; gap: .6rem;
+    justify-content: space-between; align-items: center; }
+  header h1 { margin: 0; font-size: clamp(1.05rem, 4.5vw, 1.3rem); font-weight: 800;
     background: linear-gradient(90deg, #a78bfa, #f472b6);
     -webkit-background-clip: text; background-clip: text; color: transparent; }
   header .azioni { display: flex; gap: .5rem; }
-  main { max-width: 1050px; margin: 1.5rem auto; padding: 0 1rem; }
+
+  main { max-width: 1080px; margin: 1.2rem auto 0; padding: 0 .8rem 2rem; }
+
   .card { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12);
-    border-radius: 18px; padding: 1.25rem; margin-bottom: 1.5rem; }
-  input, select, button { font-size: .95rem; padding: .6rem .8rem; border-radius: 10px;
-    border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.08); color: #fff; }
+    border-radius: 18px; padding: 1.1rem; margin-bottom: 1.1rem; }
+
+  input, select, button { font-size: 16px; padding: .65rem .8rem; border-radius: 12px;
+    border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.08); color: #fff;
+    min-height: 46px; touch-action: manipulation; }
   select option { color: #000; }
-  button { background: linear-gradient(90deg, #7c3aed, #ec4899); border: none; cursor: pointer; font-weight: 600; }
+  button { background: linear-gradient(90deg, #7c3aed, #ec4899); border: none;
+    cursor: pointer; font-weight: 600; }
   button:hover { filter: brightness(1.1); }
+  button:active { transform: scale(.97); }
   button.danger { background: #dc2626; }
   button.gray { background: rgba(255,255,255,.15); }
   button.teal { background: linear-gradient(90deg, #0d9488, #22d3ee); }
   button.cloud { background: linear-gradient(90deg, #d97706, #fbbf24); }
-  table { width: 100%; border-collapse: collapse; }
-  th, td { padding: .6rem; text-align: left; border-bottom: 1px solid rgba(255,255,255,.08); vertical-align: middle; }
-  img.qr { width: 90px; height: 90px; cursor: zoom-in; border-radius: 8px; background: #fff; padding: 4px; }
-  .badge { padding: .2rem .6rem; border-radius: 99px; font-size: .78rem; }
-  .on { background: rgba(34,197,94,.2); color: #4ade80; }
-  .off { background: rgba(239,68,68,.2); color: #f87171; }
-  #login { max-width: 360px; margin: 4rem auto; }
+  button.ok { background: linear-gradient(90deg, #16a34a, #4ade80); }
+  button.ghostb { background: rgba(255,255,255,.10); border: 1px dashed rgba(255,255,255,.3); }
+
+  /* --- LOGIN --- */
+  #login { max-width: 380px; margin: 3.5rem auto; }
   #login input { width: 100%; margin-bottom: .7rem; }
-  .muted { color: #94a3b8; font-size: .82rem; }
+  #login button { width: 100%; }
+
+  /* --- FORM NUOVO EVENTO --- */
+  .form-grid { display: grid; gap: .6rem; grid-template-columns: 1fr; margin-bottom: .8rem; }
+  @media (min-width: 680px) { .form-grid { grid-template-columns: 2fr 1fr 1fr; } }
+  .form-grid input, .form-grid select { width: 100%; }
+  #crea { width: 100%; min-height: 50px; }
+  @media (min-width: 680px) { #crea { width: auto; } }
+
+  /* --- ELENCO EVENTI: CARD --- */
+  #lista { display: grid; gap: .9rem; }
+  @media (min-width: 920px) { #lista { grid-template-columns: 1fr 1fr; } }
+
+  .evento { display: flex; gap: .9rem; margin-bottom: 0; }
+  .evento .qr { flex: none; }
+  .evento .qr img { width: 96px; height: 96px; border-radius: 10px;
+    background: #fff; padding: 4px; cursor: zoom-in; }
+  .info { flex: 1; min-width: 0; }
+  .riga1 { display: flex; justify-content: space-between; align-items: flex-start; gap: .5rem; }
+  .nome { font-size: 1.02rem; font-weight: 600; word-break: break-word; line-height: 1.25; }
+  .badge { flex: none; padding: .25rem .6rem; border-radius: 99px; font-size: .75rem; }
+  .on  { background: rgba(34,197,94,.2); color: #4ade80; }
+  .off { background: rgba(239,68,68,.2); color: #f87171; }
+  .muted { color: #94a3b8; font-size: .8rem; }
+  .riga2 { display: flex; justify-content: space-between; align-items: center;
+    flex-wrap: wrap; gap: .5rem; margin-top: .5rem; }
+  .conta { font-size: .9rem; color: #cbd5e1; }
+  .riga2 select { min-height: 40px; padding: .35rem .5rem; font-size: .88rem; }
+
+  .azioni { margin-top: .7rem; display: grid; gap: .45rem;
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
+  .azioni button { display: flex; flex-direction: column; align-items: center; gap: .15rem;
+    padding: .5rem .25rem; min-height: 58px; border-radius: 12px; font-size: 1.1rem; }
+  .azioni button span { font-size: .7rem; font-weight: 600; line-height: 1; }
+
+  .muted-note { color: #94a3b8; font-size: .82rem; margin: .8rem 0 0; }
   #msg-ripristino { margin: .3rem 0 0; font-size: .95rem; }
-  .tag-versione { text-align: center; margin-top: 1.6rem; font-size: .7rem; color: #475569; }
+  .tag-versione { text-align: center; margin-top: 1.4rem; font-size: .7rem; color: #475569; }
+
+  /* --- LIGHTBOX QR --- */
+  #lightbox { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.94); z-index: 50;
+    flex-direction: column; align-items: center; justify-content: center; gap: 1rem; padding: 1rem; }
+  #lightbox img { max-width: 92vmin; max-height: 70vh; background: #fff;
+    padding: 14px; border-radius: 14px; }
+  .lb-azioni { display: flex; gap: .6rem; }
 </style>
 </head>
 <body>
@@ -49,14 +100,14 @@
   <h2 style="margin-top:0">🔐 Accesso organizzatore</h2>
   <input type="password" id="pw" placeholder="Password admin"
          onkeydown="if(event.key==='Enter')login()">
-  <button onclick="login()" style="width:100%">Entra</button>
+  <button onclick="login()">Entra</button>
 </div>
 
 <div id="pannello" style="display:none">
   <header>
     <h1>📸 Gestione Eventi</h1>
     <div class="azioni">
-      <button class="cloud" onclick="avviaRipristino()">☁️ Ripristina da MEGA</button>
+      <button class="cloud" onclick="avviaRipristino()">☁️ Ripristina</button>
       <button class="gray" onclick="logout()">Esci</button>
     </div>
   </header>
@@ -70,41 +121,42 @@
 
     <div class="card">
       <h2 style="margin-top:0;font-size:1.1rem">Nuovo evento</h2>
-      <input id="nome" placeholder="Nome evento (es. Matrimonio Rossi)">
-      <input id="data" type="date">
-      <select id="qualita">
-        <option value="risparmio">🟢 Risparmio dati (1280 px)</option>
-        <option value="standard" selected>🔵 Standard (1920 px)</option>
-        <option value="massima">🔴 Massima qualità (4000 px)</option>
-      </select>
-      <button onclick="crea()">➕ Crea evento e QR code</button>
+      <div class="form-grid">
+        <input id="nome" placeholder="Nome evento (es. Matrimonio Rossi)">
+        <input id="data" type="date">
+        <select id="qualita">
+          <option value="risparmio">🟢 1280 px</option>
+          <option value="standard" selected>🔵 1920 px</option>
+          <option value="massima">🔴 4000 px</option>
+        </select>
+      </div>
+      <button id="crea" onclick="crea()">➕ Crea evento e QR code</button>
     </div>
 
     <div class="card">
-      <table>
-        <thead><tr><th>Evento</th><th>Data</th><th>Media</th><th>Stato</th><th>Qualità foto</th><th>QR</th><th>Azioni</th></tr></thead>
-        <tbody id="righe"></tbody>
-      </table>
-      <p class="muted">💡 Clicca su un QR per ingrandirlo • La qualità si applica alle foto inviate da quel momento in poi.</p>
-      <p class="muted">🎨 = carica l'immagine di sfondo della pagina invitati (🌄 = già impostata; ricaricandola la sostituisci).</p>
-      <p class="muted">☁️ Ogni file e un riepilogo del database vengono copiati automaticamente su MEGA. Se il server perde i dati, premi «Ripristina da MEGA».</p>
+      <h2 style="margin-top:0;font-size:1.1rem">I tuoi eventi</h2>
+      <div id="lista"></div>
+      <p class="muted-note">💡 Tocca il QR per ingrandirlo • La qualità si applica ai media inviati da quel momento in poi.</p>
+      <p class="muted-note">🌄 «Sfondo» carica l'immagine di sfondo della pagina invitati. Gli invitati possono inviare foto e video.</p>
+      <p class="muted-note">☁️ Ogni media e un riepilogo del database vengono copiati automaticamente su MEGA.</p>
     </div>
+
+    <p class="tag-versione">pannello admin · v6</p>
   </main>
-  <p class="tag-versione">pannello admin · v5</p>
 </div>
 
-<div id="lightbox" onclick="this.style.display='none'"
-     style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.92); z-index:50;
-            flex-direction:column; align-items:center; justify-content:center; gap:1rem; cursor:pointer;">
-  <img id="bigqr" style="max-width:80vmin; background:#fff; padding:14px; border-radius:14px;">
-  <p style="color:#fff">Tocca per chiudere</p>
+<div id="lightbox" onclick="chiudiLB()">
+  <img id="bigqr" src="" alt="QR code">
+  <div class="lb-azioni" onclick="event.stopPropagation()">
+    <button onclick="scaricaQR(qrCorrente)">⬇️ Scarica</button>
+    <button class="gray" onclick="chiudiLB()">Chiudi</button>
+  </div>
 </div>
-
-<input type="file" id="sfondo-file" accept="image/*" hidden>
 
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let qrCorrente = '';
 
 async function login() {
   const r = await fetch('/admin/login', { method:'POST',
@@ -116,53 +168,47 @@ function entra() { $('#login').style.display='none'; $('#pannello').style.displa
 
 async function carica() {
   const eventi = await (await fetch('/api/eventi')).json();
-  $('#righe').innerHTML = eventi.map(e => `
-    <tr>
-      <td><strong>${esc(e.nome)}</strong>${e.sfondo ? ' 🌄' : ''}<br><span class="muted">/e/${e.token}</span></td>
-      <td>${e.data_evento || '—'}</td>
-      <td><strong>${e.num_foto}</strong></td>
-      <td><span class="badge ${e.attivo ? 'on' : 'off'}">${e.attivo ? 'Attivo' : 'Chiuso'}</span></td>
-      <td>
-        <select onchange="cambiaQualita(${e.id}, this.value)">
-          <option value="risparmio" ${e.qualita==='risparmio'?'selected':''}>🟢 1280 px</option>
-          <option value="standard"  ${e.qualita==='standard' || !e.qualita ?'selected':''}>🔵 1920 px</option>
-          <option value="massima"   ${e.qualita==='massima'?'selected':''}>🔴 4000 px</option>
-        </select>
-      </td>
-      <td><img class="qr" src="/qr/${e.token}" onclick="mostraQR('${e.token}')"></td>
-      <td>
-        <button title="Link" onclick="copia('${e.link}')">📋</button>
-        <button title="Scarica QR" onclick="scaricaQR('${e.token}')">⬇️</button>
-        <button class="teal" title="Galleria" onclick="galleria('${e.token}')">🖼️</button>
-        <button class="gray" title="Sfondo pagina invitati" onclick="sfondo(${e.id})">🎨</button>
-        <button class="gray" title="Chiudi/Apri" onclick="toggle(${e.id})">${e.attivo ? '🔒' : '🔓'}</button>
-        <button class="danger" title="Elimina" onclick="elimina(${e.id})">🗑️</button>
-      </td>
-    </tr>`).join('');
+  $('#lista').innerHTML = eventi.map(e => `
+    <div class="evento card">
+      <div class="qr" onclick="mostraQR('${e.token}')">
+        <img src="/qr/${e.token}" alt="QR ${esc(e.nome)}">
+      </div>
+      <div class="info">
+        <div class="riga1">
+          <span class="nome">${esc(e.nome)}</span>
+          <span class="badge ${e.attivo ? 'on' : 'off'}">${e.attivo ? 'Attivo' : 'Chiuso'}</span>
+        </div>
+        <div class="muted">/e/${e.token}${e.data_evento ? ' · ' + esc(e.data_evento) : ''}</div>
+        <div class="riga2">
+          <span class="conta">🎞️ <strong>${e.num_foto}</strong> media</span>
+          <select onchange="cambiaQualita(${e.id}, this.value)">
+            <option value="risparmio" ${e.qualita==='risparmio'?'selected':''}>🟢 1280 px</option>
+            <option value="standard"  ${e.qualita==='standard' || !e.qualita ?'selected':''}>🔵 1920 px</option>
+            <option value="massima"   ${e.qualita==='massima'?'selected':''}>🔴 4000 px</option>
+          </select>
+        </div>
+        <div class="azioni">
+          <button onclick="copia('${e.link}')">📋<span>Link</span></button>
+          <button onclick="scaricaQR('${e.token}')">⬇️<span>QR</span></button>
+          <button class="teal" onclick="galleria('${e.token}')">🖼️<span>Galleria</span></button>
+          <button class="${e.sfondo ? 'ok' : 'ghostb'}" onclick="scegliSfondo(${e.id})">${e.sfondo ? '✓' : ''}🌄<span>Sfondo</span></button>
+          ${e.sfondo ? `<button class="danger" onclick="rimuoviSfondo(${e.id})">✕<span>Togli sf.</span></button>` : ''}
+          <button class="gray" onclick="toggle(${e.id})">${e.attivo ? '🔒<span>Chiudi</span>' : '🔓<span>Apri</span>'}</button>
+          <button class="danger" onclick="elimina(${e.id})">🗑️<span>Elimina</span></button>
+        </div>
+      </div>
+    </div>`).join('');
 }
 
-function mostraQR(t) { $('#bigqr').src = `/qr/${t}`; $('#lightbox').style.display = 'flex'; }
+function mostraQR(t) {
+  qrCorrente = t;
+  $('#bigqr').src = `/qr/${t}`;
+  $('#lightbox').style.display = 'flex';
+}
+function chiudiLB() { $('#lightbox').style.display = 'none'; }
 function scaricaQR(t) { const a = document.createElement('a'); a.href = `/qr/${t}`; a.download = `qr-${t}.png`; a.click(); }
 function copia(l) { navigator.clipboard.writeText(l); alert('Link copiato:\n' + l); }
 function galleria(t) { window.open('/galleria/' + t, '_blank'); }
-
-// --- SFONDO ---
-let sfondoId = null;
-function sfondo(id) {
-  sfondoId = id;
-  document.getElementById('sfondo-file').click();
-}
-document.getElementById('sfondo-file').addEventListener('change', async e => {
-  const f = e.target.files[0];
-  e.target.value = '';
-  if (!f || !sfondoId) return;
-  const fd = new FormData();
-  fd.append('sfondo', f);
-  const r = await fetch(`/admin/sfondo/${sfondoId}`, { method: 'POST', body: fd });
-  const d = await r.json();
-  if (!r.ok) return alert(d.errore || 'Errore caricamento sfondo');
-  carica();
-});
 
 async function crea() {
   const r = await fetch('/api/eventi', { method:'POST',
@@ -179,18 +225,37 @@ async function cambiaQualita(id, qualita) {
     headers:{'Content-Type':'application/json'}, body: JSON.stringify({ qualita }) });
 }
 
+function scegliSfondo(id) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.onchange = async () => {
+    if (!input.files[0]) return;
+    const fd = new FormData();
+    fd.append('sfondo', input.files[0]);
+    const r = await fetch(`/api/eventi/${id}/sfondo`, { method: 'POST', body: fd });
+    const d = await r.json();
+    if (!r.ok) return alert(d.errore || 'Errore caricamento sfondo');
+    carica();
+  };
+  input.click();
+}
+async function rimuoviSfondo(id) {
+  if (!confirm('Rimuovere l\'immagine di sfondo di questo evento?')) return;
+  await fetch(`/api/eventi/${id}/sfondo`, { method: 'DELETE' });
+  carica();
+}
+
 async function toggle(id) { await fetch(`/api/eventi/${id}/toggle`, { method:'POST' }); carica(); }
 async function elimina(id) {
-  if (!confirm('Eliminare definitivamente questo evento? Verranno cancellate anche le sue foto e i suoi video (anche dal backup MEGA).')) return;
+  if (!confirm('Eliminare definitivamente questo evento? Verranno cancellati anche foto, video e sfondo (anche dal backup MEGA).')) return;
   await fetch(`/api/eventi/${id}`, { method:'DELETE' }); carica();
 }
 
-// --- RIPRISTINO DA MEGA ---
 let timerRipristino = null;
 async function avviaRipristino() {
-  if (!confirm('Ripristinare eventi, foto e video dal backup MEGA?\n\n' +
-      'Operazione SICURA: ciò che esiste già sul server non viene toccato, ' +
-      'vengono solo riaggiunti gli elementi mancanti.')) return;
+  if (!confirm('Ripristinare eventi, foto, video e sfondi dal backup MEGA?\n\n' +
+      'Operazione SICURA: vengono riaggiunti solo gli elementi mancanti.')) return;
   const r = await fetch('/admin/ripristino', { method: 'POST' });
   const d = await r.json();
   if (!r.ok) return alert(d.errore || 'Errore avvio ripristino');
