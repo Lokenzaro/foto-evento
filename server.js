@@ -1,10 +1,13 @@
 // ============================================================
-//  SERVER - App foto/video evento con QR code — v6.5
+//  SERVER - App foto/video evento con QR code — v6.6
 //  MEGA: /FOTO-EVENTI/<Evento [TOKEN]>/
 //  - figliDi() via children/parent (campo megajs: "parent")
 //  - tipo media da mimetype + estensione
 //  - sweep video all'avvio: ripara tipi, converte HEVC/mov/webm,
 //    genera anteprime, backup MEGA del file finale
+//  - v6.6: dopo l'eliminazione definitiva di un evento, pulizia
+//    immediata dell'indice MEGA locale + refresh di conferma +
+//    filtro "cancellazioni recenti" nel dialogo di ripristino
 // ============================================================
 
 const express = require('express');
@@ -18,7 +21,7 @@ const os = require('os');
 const { execFile } = require('child_process');
 const QRCode = require('qrcode');
 
-const VERSIONE = '6.5';
+const VERSIONE = '6.6';
 
 function rilevaIPLocale() {
   const interfacce = os.networkInterfaces();
@@ -86,8 +89,11 @@ const storageMulter = multer.diskStorage({
 });
 const caricamento = multer({ storage: storageMulter, limits: { fileSize: 100 * 1024 * 1024 } });
 
-// ---------- STATO OPERAZIONI LUNGHE (dichiarato prima dell'uso) ----------
+// ---------- STATO OPERAZIONI LUNGHE ----------
 const ripristino = { in_corso: false, messaggio: 'Mai avviato', eventi: 0, media: 0, errori: 0, totale: 0 };
+
+// token eliminati definitivamente da pochi secondi (protezione latenza MEGA)
+const cancellazioniRecenti = new Set();
 
 // ---------- CONNESSIONE MEGA ----------
 let megaStorage = null;
@@ -136,6 +142,35 @@ function aggiornaIndice(cb) {
   } catch (e) { cb(); }
 }
 
+// ---------- GESTIONE INDICE LOCALE (v6.6) ----------
+// rimuove un nodo dall'indice locale e dai children del genitore:
+// senza questo, i nodi cancellati restavano "visti" dal ripristino
+function rimuoviDaIndiceLocale(nodo) {
+  if (!nodo || nodo.nodeId === undefined) return;
+  if (megaStorage && megaStorage.files) {
+    const genitore = megaStorage.files[nodo.parent];
+    if (genitore && Array.isArray(genitore.children)) {
+      genitore.children = genitore.children.filter(c => c && c.nodeId !== nodo.nodeId);
+    }
+    delete megaStorage.files[nodo.nodeId];
+  }
+}
+
+// rimuove dall'indice locale TUTTI i nodi legati a un token:
+// cartella "Nome [TOKEN]", vecchi file "TOKEN_...", "sfondo-TOKEN..."
+function rimuoviTokenDaIndiceLocale(token) {
+  if (!megaStorage || !megaStorage.files) return;
+  const re = new RegExp('\\[' + token + '\\]$');
+  for (const id of Object.keys(megaStorage.files)) {
+    const f = megaStorage.files[id];
+    if (f && f.name && (re.test(f.name) || f.name.startsWith(token + '_') ||
+        f.name.startsWith('sfondo-' + token))) {
+      rimuoviDaIndiceLocale(f);
+    }
+  }
+  delete megaCache.eventi[token];
+}
+
 function creaCartellaDentro(padre, nome, cb) {
   const fatto = () => cb();
   try {
@@ -162,8 +197,10 @@ function caricaInCartella(cartella, nome, buffer, cb) {
   } catch (e) { fine(e); }
 }
 
+// cancella il nodo su MEGA e lo toglie subito dall'indice locale
 function cancellaNodoMega(nodo) {
   if (!nodo) return;
+  rimuoviDaIndiceLocale(nodo);
   try { nodo.delete(true, () => {}); } catch (e1) { try { nodo.delete(() => {}); } catch (e2) {} }
 }
 
@@ -288,13 +325,24 @@ function eliminaSfondiMega(token) {
   eliminaPiattiMega('sfondo-' + token);
 }
 
+// elimina la cartella MEGA di un evento (con tutto il contenuto) e
+// sincronizza subito l'indice locale + refresh di conferma da MEGA
 function eliminaCartellaEvento(token) {
   if (!megaStorage || !megaPronto) return;
   const cartella = trovaCartellaEvento(token);
+  // 1) pulizia IMMEDIATA dell'indice locale: un dialogo di ripristino
+  //    aperto subito dopo non vedrà più l'evento
+  rimuoviTokenDaIndiceLocale(token);
   if (!cartella) return;
   figliDi(cartella).forEach(cancellaNodoMega);
-  setTimeout(() => cancellaNodoMega(cartella), 2000);
-  delete megaCache.eventi[token];
+  rimuoviDaIndiceLocale(cartella);
+  // 2) cancellazione reale su MEGA, poi refresh di conferma dell'indice
+  setTimeout(() => {
+    cancellaNodoMega(cartella);
+    setTimeout(() => aggiornaIndice(() => {
+      console.log('☁️ Indice MEGA sincronizzato dopo eliminazione evento ' + token);
+    }), 2000);
+  }, 2000);
 }
 
 // ============================================================
@@ -556,6 +604,7 @@ app.post('/api/eventi/:id/dearchivia', soloAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
+// ELIMINAZIONE: ?modo=archivia (nasconde, non tocca nulla) | ?modo=tutto (cancella tutto)
 app.delete('/api/eventi/:id', soloAdmin, (req, res) => {
   const modo = req.query.modo === 'archivia' ? 'archivia' : 'tutto';
   const ev = db.prepare('SELECT token, nome, sfondo FROM eventi WHERE id = ?').get(req.params.id);
@@ -574,6 +623,10 @@ app.delete('/api/eventi/:id', soloAdmin, (req, res) => {
   }
   if (ev.sfondo) { try { fs.unlinkSync(path.join(CARTELLA_FOTO, ev.sfondo)); } catch (e) {} }
   if (megaStorage && megaPronto) {
+    // 3) protezione latenza: per 8 secondi il token è escluso dal
+    //    dialogo di ripristino anche se MEGA non ha ancora propagato
+    cancellazioniRecenti.add(ev.token);
+    setTimeout(() => cancellazioniRecenti.delete(ev.token), 8000);
     eliminaCartellaEvento(ev.token);
     eliminaPiattiMega(ev.token + '_');
     eliminaPiattiMega('sfondo-' + ev.token);
@@ -676,6 +729,7 @@ app.get('/admin/eventi-mega', soloAdmin, (req, res) => {
         const m = c.name && c.name.match(/\[([A-Za-z0-9_-]{8})\]$/);
         if (!m || !conContenuto.has(m[1])) continue;
         const token = m[1];
+        if (cancellazioniRecenti.has(token)) continue; // eliminato da pochi secondi
         if (!lista[token]) {
           lista[token] = {
             token,
@@ -689,7 +743,7 @@ app.get('/admin/eventi-mega', soloAdmin, (req, res) => {
       }
       for (const f of nodiMega()) {
         const m = f.name && f.name.match(new RegExp(`^([A-Za-z0-9_-]{8})_.+\\.(${EST_MEDIA.join('|')})$`, 'i'));
-        if (!m) continue;
+        if (!m || cancellazioniRecenti.has(m[1])) continue;
         const token = m[1];
         if (!lista[token]) lista[token] = { token, nome: meta[token] || 'Evento (backup)', num_media: 0 };
         lista[token].num_media++;
