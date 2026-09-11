@@ -1,6 +1,7 @@
 // ============================================================
-//  SERVER - App foto/video evento con QR code — v6.1
-//  Struttura MEGA: /FOTO-EVENTI/<Evento [TOKEN]>/ + _sistema
+//  SERVER - App foto/video evento con QR code — v6.2
+//  MEGA: /FOTO-EVENTI/<Evento [TOKEN]>/ via File.mkdir/upload
+//  + refresh indice + elenco ripristino basato sui file reali
 // ============================================================
 
 const express = require('express');
@@ -74,7 +75,7 @@ const storageMulter = multer.diskStorage({
 });
 const caricamento = multer({ storage: storageMulter, limits: { fileSize: 100 * 1024 * 1024 } });
 
-// ---------- CONNESSIONE MEGA (opzionale) ----------
+// ---------- CONNESSIONE MEGA ----------
 let megaStorage = null;
 let megaPronto = false;
 if (process.env.MEGA_EMAIL && process.env.MEGA_PASSWORD) {
@@ -89,16 +90,19 @@ if (process.env.MEGA_EMAIL && process.env.MEGA_PASSWORD) {
       else {
         megaPronto = true;
         console.log('☁️ Backup MEGA collegato (struttura: /FOTO-EVENTI)');
-        try { garantisciRadice(() => garantisciSistema(() => {})); } catch (e) {}
+        aggiornaIndice(() => {
+          garantisciRadice(() => garantisciSistema(() => programmaSnapshot(3000)));
+        });
       }
     });
   } catch (e) { console.error('☁️ MEGA non disponibile:', e.message); }
 }
 
 // ============================================================
-//  LIVELLO MEGA — gestione cartelle senza proprietà ambigue.
-//  Le cartelle si riconoscono SOLO dal nome (certo), non da
-//  flag tipo isDirectory che variano tra versioni di megajs.
+//  LIVELLO MEGA — API sicure:
+//  · creazione/upload chiamati DIRETTAMENTE sul nodo cartella
+//  · dopo ogni creazione: refresh indice e ritrovo per NOME
+//  · figli individuati via parentNodeId (campo certo)
 // ============================================================
 const RADICE_MEGA = 'FOTO-EVENTI';
 const CART_SISTEMA = '_sistema';
@@ -106,89 +110,46 @@ const megaCache = { radice: null, sistema: null, eventi: {} };
 
 function nodiMega() { return Object.values((megaStorage && megaStorage.files) || {}); }
 
-// figli di una cartella: usa children se presente, altrimenti l'indice per parent
 function figliDi(cartella) {
-  if (!cartella || cartella.nodeId === undefined) return [];
-  if (Array.isArray(cartella.children)) return cartella.children.filter(Boolean);
-  return nodiMega().filter(f => f && f.parent === cartella.nodeId);
+  if (!cartella || !cartella.nodeId) return [];
+  return nodiMega().filter(f => f && f.parentNodeId === cartella.nodeId && f.nodeId !== cartella.nodeId);
 }
 
-// callback di mkdir/upload: gestisce sia (err, nodo) sia (nodo)
-function estraiNodo(args) {
-  for (const a of args) {
-    if (a && typeof a === 'object' && !(a instanceof Error) && a.nodeId !== undefined) return a;
-  }
-  return null;
-}
-
-function registraNodo(nodo, parent) {
-  if (!nodo || nodo.nodeId === undefined) return;
-  if (!megaStorage.files) megaStorage.files = {};
-  if (!megaStorage.files[nodo.nodeId]) megaStorage.files[nodo.nodeId] = nodo;
-  if (parent && Array.isArray(parent.children) &&
-      !parent.children.some(c => c && c.nodeId === nodo.nodeId)) parent.children.push(nodo);
-}
-
-function creaCartella(nome, parent, cb) {
+// ricarica l'indice completo dei nodi da MEGA
+function aggiornaIndice(cb) {
   try {
-    megaStorage.mkdir({ name: nome, parent }, (...args) => {
-      const nodo = estraiNodo(args);
-      if (nodo) registraNodo(nodo, parent);
-      cb(nodo);
-    });
-  } catch (e) { console.error('☁️ Creazione cartella fallita:', e.message); cb(null); }
+    if (typeof megaStorage.refresh === 'function') {
+      megaStorage.refresh(true, () => cb());
+    } else cb();
+  } catch (e) { cb(); }
 }
 
-// /FOTO-EVENTI (creata una sola volta, poi cache)
-function garantisciRadice(cb) {
-  if (megaCache.radice) return cb(megaCache.radice);
-  const rootNodo = megaStorage.root || null;
-  if (!rootNodo) { console.error('☁️ MEGA: radice non disponibile'); return cb(null); }
-  const esistente = nodiMega().find(f => f.name === RADICE_MEGA);
-  if (esistente) { megaCache.radice = esistente; return cb(esistente); }
-  creaCartella(RADICE_MEGA, rootNodo, (nodo) => { megaCache.radice = nodo; cb(nodo); });
-}
-
-// /FOTO-EVENTI/_sistema + pulizia dei duplicati vuoti lasciati dalla v6
-function garantisciSistema(cb) {
-  if (megaCache.sistema) return cb(megaCache.sistema);
-  garantisciRadice((radice) => {
-    if (!radice) return cb(null);
-    let scelto = figliDi(radice).find(f => f.name === CART_SISTEMA)
-      || nodiMega().find(f => f.name === CART_SISTEMA) || null;
-    if (!scelto) {
-      return creaCartella(CART_SISTEMA, radice, (nodo) => {
-        megaCache.sistema = nodo; cb(nodo);
-      });
+// crea una cartella DENTRO il padre (metodo del nodo; fallback con parent)
+function creaCartellaDentro(padre, nome, cb) {
+  const fatto = () => cb();
+  try {
+    if (padre && typeof padre.mkdir === 'function') {
+      padre.mkdir({ name: nome }, () => fatto());
+    } else {
+      megaStorage.mkdir({ name: nome, parent: padre }, () => fatto());
     }
-    megaCache.sistema = scelto;
-    for (const f of nodiMega()) {
-      if (f.name === CART_SISTEMA && f !== scelto && figliDi(f).length === 0) cancellaNodoMega(f);
+  } catch (e) {
+    try { megaStorage.mkdir({ name: nome }, () => fatto()); } catch (e2) { fatto(); }
+  }
+}
+
+// carica un file DENTRO la cartella (metodo del nodo; fallback in radice)
+function caricaInCartella(cartella, nome, buffer, cb) {
+  const fine = (err) => cb && cb(err || null);
+  try {
+    if (cartella && typeof cartella.upload === 'function') {
+      cartella.upload({ name: nome, allowUploadBuffering: true }, buffer, (...a) =>
+        fine(a.find(x => x instanceof Error)));
+    } else {
+      megaStorage.upload({ name: nome, allowUploadBuffering: true }, buffer, (...a) =>
+        fine(a.find(x => x instanceof Error)));
     }
-    cb(scelto);
-  });
-}
-
-function pulisciNome(n) {
-  return (n || 'Evento').replace(/[\/\\:<>"|?*\n\r]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60) || 'Evento';
-}
-
-// cartella evento = qualsiasi nodo il cui nome termina con [TOKEN]
-function trovaCartellaEvento(token) {
-  const re = new RegExp(`\\[${token}\\]$`);
-  return nodiMega().find(f => f.name && re.test(f.name)) || null;
-}
-
-function garantisciCartellaEvento(ev, cb) {
-  if (megaCache.eventi[ev.token]) return cb(megaCache.eventi[ev.token]);
-  garantisciRadice((radice) => {
-    if (!radice) return cb(null);
-    const esistente = trovaCartellaEvento(ev.token);
-    if (esistente) { megaCache.eventi[ev.token] = esistente; return cb(esistente); }
-    creaCartella(`${pulisciNome(ev.nome)} [${ev.token}]`, radice, (nodo) => {
-      megaCache.eventi[ev.token] = nodo; cb(nodo);
-    });
-  });
+  } catch (e) { fine(e); }
 }
 
 function cancellaNodoMega(nodo) {
@@ -196,19 +157,113 @@ function cancellaNodoMega(nodo) {
   try { nodo.delete(true, () => {}); } catch (e1) { try { nodo.delete(() => {}); } catch (e2) {} }
 }
 
-// vecchi file "piatti" dei backup v4/v5 (TOKEN_file.ext, sfondo-TOKEN.ext)
+function pulisciNome(n) {
+  return (n || 'Evento').replace(/[\/\\:<>"|?*\n\r]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60) || 'Evento';
+}
+
+// ---- /FOTO-EVENTI ----
+function trovaRadice() {
+  const root = megaStorage.root;
+  if (!root) return null;
+  return figliDi(root).find(f => f.name === RADICE_MEGA)
+    || nodiMega().find(f => f.name === RADICE_MEGA) || null;
+}
+
+function garantisciRadice(cb) {
+  if (megaCache.radice) return cb(megaCache.radice);
+  aggiornaIndice(() => {
+    let radice = trovaRadice();
+    if (radice) { megaCache.radice = radice; return cb(radice); }
+    const root = megaStorage.root;
+    if (!root) { console.error('☁️ MEGA: radice del cloud non disponibile'); return cb(null); }
+    creaCartellaDentro(root, RADICE_MEGA, () => {
+      aggiornaIndice(() => {
+        radice = trovaRadice();
+        megaCache.radice = radice || null;
+        if (radice) cb(radice);
+        else { console.error('☁️ Creazione /FOTO-EVENTI non riuscita'); cb(null); }
+      });
+    });
+  });
+}
+
+// ---- /FOTO-EVENTI/_sistema (+ pulizia duplicati vuoti v6.0) ----
+function garantisciSistema(cb) {
+  if (megaCache.sistema) return cb(megaCache.sistema);
+  garantisciRadice((radice) => {
+    if (!radice) return cb(null);
+    let scelto = figliDi(radice).find(f => f.name === CART_SISTEMA)
+      || nodiMega().find(f => f.name === CART_SISTEMA) || null;
+    if (!scelto) {
+      return creaCartellaDentro(radice, CART_SISTEMA, () => {
+        aggiornaIndice(() => {
+          scelto = figliDi(radice).find(f => f.name === CART_SISTEMA) || null;
+          megaCache.sistema = scelto;
+          if (scelto) pulisciDuplicatiSistema(radice, scelto);
+          cb(scelto);
+        });
+      });
+    }
+    megaCache.sistema = scelto;
+    pulisciDuplicatiSistema(radice, scelto);
+    cb(scelto);
+  });
+}
+
+function pulisciDuplicatiSistema(radice, scelto) {
+  nodiMega().forEach(f => {
+    if (f.name === CART_SISTEMA && f.nodeId !== scelto.nodeId) {
+      const vuota = (!Array.isArray(f.children) || f.children.length === 0) && figliDi(f).length === 0;
+      if (vuota) cancellaNodoMega(f);
+    }
+  });
+}
+
+// ---- cartella evento "Nome [TOKEN]" ----
+function trovaCartellaEvento(token) {
+  const re = new RegExp('\\[' + token + '\\]$');
+  if (megaCache.radice) {
+    const dentro = figliDi(megaCache.radice).find(f => f.name && re.test(f.name));
+    if (dentro) return dentro;
+  }
+  return nodiMega().find(f => f.name && re.test(f.name)) || null;
+}
+
+function garantisciCartellaEvento(ev, cb) {
+  if (megaCache.eventi[ev.token]) return cb(megaCache.eventi[ev.token]);
+  garantisciRadice((radice) => {
+    if (!radice) return cb(null);
+    let cartella = trovaCartellaEvento(ev.token);
+    if (cartella) { megaCache.eventi[ev.token] = cartella; return cb(cartella); }
+    creaCartellaDentro(radice, `${pulisciNome(ev.nome)} [${ev.token}]`, () => {
+      aggiornaIndice(() => {
+        cartella = trovaCartellaEvento(ev.token) || null;
+        megaCache.eventi[ev.token] = cartella;
+        if (cartella) cb(cartella);
+        else { console.error('☁️ Cartella evento non creabile per ' + ev.token); cb(null); }
+      });
+    });
+  });
+}
+
+// ---- backup di un media ----
+function backupMega(percorsoFile, nomeFile, ev) {
+  if (!megaStorage || !megaPronto || !ev) return;
+  try {
+    const buffer = fs.readFileSync(percorsoFile);
+    garantisciCartellaEvento(ev, (cartella) => {
+      if (!cartella) return;
+      caricaInCartella(cartella, nomeFile, buffer, (err) => {
+        if (err) console.error('☁️ Backup MEGA fallito:', err.message);
+        else console.log(`☁️ Copiato: /FOTO-EVENTI/${pulisciNome(ev.nome)} [${ev.token}]/${nomeFile}`);
+      });
+    });
+  } catch (e) { console.error('☁️ Backup MEGA errore:', e.message); }
+}
+
 function eliminaPiattiMega(prefisso) {
   if (!megaStorage || !megaPronto) return;
   nodiMega().forEach(f => { if (f.name && f.name.startsWith(prefisso)) cancellaNodoMega(f); });
-}
-
-function eliminaCartellaEvento(token) {
-  if (!megaStorage || !megaPronto) return;
-  const cartella = trovaCartellaEvento(token);
-  if (!cartella) return;
-  figliDi(cartella).forEach(cancellaNodoMega);
-  setTimeout(() => cancellaNodoMega(cartella), 1500);
-  delete megaCache.eventi[token];
 }
 
 function eliminaSfondiMega(token) {
@@ -220,35 +275,18 @@ function eliminaSfondiMega(token) {
   eliminaPiattiMega('sfondo-' + token);
 }
 
-function caricaBufferMega(buffer, nome, cartella, cb) {
-  const opzioni = { name: nome, allowUploadBuffering: true };
-  if (cartella) opzioni.parent = cartella;
-  try {
-    megaStorage.upload(opzioni, buffer, (...args) => {
-      const err = args.find(a => a instanceof Error) || null;
-      const nodo = estraiNodo(args);
-      if (nodo && cartella) registraNodo(nodo, cartella);
-      if (cb) cb(err);
-    });
-  } catch (e) { if (cb) cb(e); }
+function eliminaCartellaEvento(token) {
+  if (!megaStorage || !megaPronto) return;
+  const cartella = trovaCartellaEvento(token);
+  if (!cartella) return;
+  figliDi(cartella).forEach(cancellaNodoMega);
+  setTimeout(() => cancellaNodoMega(cartella), 2000);
+  delete megaCache.eventi[token];
 }
 
-// copia un media nella cartella MEGA del suo evento
-function backupMega(percorsoFile, nomeFile, ev) {
-  if (!megaStorage || !megaPronto || !ev) return;
-  try {
-    garantisciCartellaEvento(ev, (cartella) => {
-      if (!cartella) { console.error('☁️ Cartella evento MEGA non disponibile'); return; }
-      const buffer = fs.readFileSync(percorsoFile);
-      caricaBufferMega(buffer, nomeFile, cartella, (err) => {
-        if (err) console.error('☁️ Backup MEGA fallito:', err.message);
-      });
-    });
-  } catch (e) { console.error('☁️ Backup MEGA errore:', e.message); }
-}
-
-// ---------- SNAPSHOT SU MEGA (debounce 15 s) ----------
+// ---------- SNAPSHOT SU MEGA (debounce 15 s, con retry se MEGA non pronto) ----------
 let snapshotTimer = null;
+let snapshotInAttesa = false;
 function programmaSnapshot(ritardo = 15000) {
   if (!megaStorage) return;
   clearTimeout(snapshotTimer);
@@ -256,36 +294,49 @@ function programmaSnapshot(ritardo = 15000) {
 }
 
 function pulisciVecchiFile(cartella, prefisso, daTenere) {
-  const files = figliDi(cartella)
-    .filter(f => f.name && f.name.startsWith(prefisso) && f.name.endsWith('.json'))
-    .sort((a, b) => a.name.localeCompare(b.name));
-  files.slice(0, Math.max(0, files.length - daTenere)).forEach(cancellaNodoMega);
+  aggiornaIndice(() => {
+    const files = figliDi(cartella)
+      .filter(f => f.name && f.name.startsWith(prefisso) && f.name.endsWith('.json'))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    files.slice(0, Math.max(0, files.length - daTenere)).forEach(cancellaNodoMega);
+  });
 }
 
 function eseguiSnapshot() {
-  if (!megaStorage || !megaPronto) return;
+  if (!megaStorage) return;
+  if (!megaPronto) {
+    // MEGA non ancora connesso: riprova (garantisce snapshot anche dopo cancellazioni immediate)
+    if (!snapshotInAttesa) {
+      snapshotInAttesa = true;
+      setTimeout(() => { snapshotInAttesa = false; eseguiSnapshot(); }, 20000);
+    }
+    return;
+  }
   try {
     const eventi = db.prepare('SELECT * FROM eventi').all();
     const foto = db.prepare('SELECT * FROM foto').all();
     const ts = Date.now();
 
-    // 1) snapshot globale → FOTO-EVENTI/_sistema (ultimi 3)
+    // 1) snapshot globale → _sistema (ultimi 3)
     garantisciSistema((sistema) => {
       if (!sistema) return;
       const glob = JSON.stringify({ esportato_il: new Date(ts).toISOString(), eventi, foto });
-      caricaBufferMega(Buffer.from(glob), `db-snapshot-${ts}.json`, sistema, (err) => {
+      caricaInCartella(sistema, `db-snapshot-${ts}.json`, Buffer.from(glob), (err) => {
         if (err) console.error('☁️ Snapshot DB non salvato:', err.message);
-        else { console.log('☁️ Snapshot database salvato su MEGA'); pulisciVecchiFile(sistema, 'db-snapshot-', 3); }
+        else {
+          console.log('☁️ Snapshot salvato: /FOTO-EVENTI/_sistema');
+          pulisciVecchiFile(sistema, 'db-snapshot-', 3);
+        }
       });
     });
 
-    // 2) JSON dei dati propri di ogni evento → dentro la sua cartella (ultimi 2)
+    // 2) JSON dei dati di ogni evento → dentro la sua cartella (ultimi 2)
     for (const ev of eventi) {
       garantisciCartellaEvento(ev, (cartella) => {
         if (!cartella) return;
         const proprie = foto.filter(f => f.evento_token === ev.token);
         const j = JSON.stringify({ esportato_il: new Date(ts).toISOString(), eventi: [ev], foto: proprie });
-        caricaBufferMega(Buffer.from(j), `dati-${ts}.json`, cartella, (err) => {
+        caricaInCartella(cartella, `dati-${ts}.json`, Buffer.from(j), (err) => {
           if (!err) pulisciVecchiFile(cartella, 'dati-', 2);
         });
       });
@@ -343,7 +394,6 @@ app.post('/api/eventi/:id/qualita', soloAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-// --- SFONDO PERSONALIZZATO ---
 app.post('/api/eventi/:id/sfondo', soloAdmin, caricamento.single('sfondo'), (req, res) => {
   const ev = db.prepare('SELECT token, nome, sfondo FROM eventi WHERE id = ?').get(req.params.id);
   if (!ev) return res.status(404).json({ errore: 'Evento non trovato' });
@@ -381,7 +431,6 @@ app.post('/api/eventi/:id/dearchivia', soloAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-// ELIMINAZIONE: ?modo=archivia (nasconde, non tocca nulla) | ?modo=tutto (cancella tutto)
 app.delete('/api/eventi/:id', soloAdmin, (req, res) => {
   const modo = req.query.modo === 'archivia' ? 'archivia' : 'tutto';
   const ev = db.prepare('SELECT token, nome, sfondo FROM eventi WHERE id = ?').get(req.params.id);
@@ -399,6 +448,7 @@ app.delete('/api/eventi/:id', soloAdmin, (req, res) => {
   if (megaStorage && megaPronto) {
     eliminaCartellaEvento(ev.token);
     eliminaPiattiMega(ev.token + '_');
+    eliminaPiattiMega('sfondo-' + ev.token);
   }
   db.prepare('DELETE FROM foto WHERE evento_token = ?').run(ev.token);
   db.prepare('DELETE FROM eventi WHERE id = ?').run(req.params.id);
@@ -425,7 +475,6 @@ app.get('/api/foto/:token', (req, res) => {
 
 app.use('/foto', express.static(CARTELLA_FOTO));
 
-// ---------- QR CODE ----------
 app.get('/qr/:token', soloAdmin, async (req, res) => {
   const ev = db.prepare('SELECT token FROM eventi WHERE token = ?').get(req.params.token);
   if (!ev) return res.status(404).send('Non trovato');
@@ -433,7 +482,6 @@ app.get('/qr/:token', soloAdmin, async (req, res) => {
   res.type('image/png').send(png);
 });
 
-// ---------- PAGINE ----------
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
 app.get('/e/:token', (req, res) => {
   const ev = db.prepare('SELECT id FROM eventi WHERE token = ? AND attivo = 1').get(req.params.token);
@@ -446,7 +494,6 @@ app.get('/galleria/:token', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'galleria.html'));
 });
 
-// ---------- CARICAMENTO FOTO E VIDEO ----------
 app.post('/upload', caricamento.single('media'), (req, res) => {
   const ev = db.prepare('SELECT token, nome FROM eventi WHERE token = ? AND attivo = 1').get(req.body.token);
   if (!ev) return res.status(403).json({ errore: 'Evento non valido o chiuso' });
@@ -458,55 +505,74 @@ app.post('/upload', caricamento.single('media'), (req, res) => {
   res.json({ ok: true, tipo });
 });
 
-// ---------- ELENCO DEI BACKUP MEGA (ripristino selettivo) ----------
+// ---------- ELENCO BACKUP: SOLO eventi con file reali su MEGA ----------
 app.get('/admin/eventi-mega', soloAdmin, async (req, res) => {
   if (!megaStorage || !megaPronto) return res.status(400).json({ errore: 'MEGA non configurato' });
-  try {
-    const lista = {};
-    const aggiungi = (token, nome) => {
-      if (!/^[A-Za-z0-9_-]{8}$/.test(token || '')) return;
-      if (!lista[token]) lista[token] = { token, nome: nome || 'Evento (backup)', num_media: 0 };
-    };
+  aggiornaIndice(() => {
+    try {
+      const lista = {};
 
-    // eventi noti allo snapshot globale più recente (dove si trovi: root o _sistema)
-    const snaps = nodiMega().filter(f => f.name && /^db-snapshot-\d+\.json$/.test(f.name))
-      .sort((a, b) => a.name.localeCompare(b.name));
-    if (snaps.length) {
+      // token che hanno DAVVERO contenuti su MEGA
+      const conContenuto = new Set();
+      for (const c of nodiMega()) {
+        const m = c.name && c.name.match(/\[([A-Za-z0-9_-]{8})\]$/);
+        if (m && figliDi(c).length > 0) conContenuto.add(m[1]);
+      }
+      for (const f of nodiMega()) {
+        const m = f.name && f.name.match(new RegExp(`^([A-Za-z0-9_-]{8})_.+\\.(${EST_MEDIA.join('|')})$`, 'i'));
+        if (m) conContenuto.add(m[1]);
+      }
+      if (!conContenuto.size) return res.json([]);
+
+      // nomi dallo snapshot più recente (solo per i token con contenuti)
+      const meta = {};
+      const snaps = nodiMega().filter(f => f.name && /^db-snapshot-\d+\.json$/.test(f.name))
+        .sort((a, b) => a.name.localeCompare(b.name));
       await new Promise(done => {
+        if (!snaps.length) return done();
         snaps[snaps.length - 1].downloadBuffer((err, buf) => {
           if (!err) {
             try {
               const d = JSON.parse(buf.toString('utf8'));
-              for (const ev of (d.eventi || [])) aggiungi(ev.token, ev.nome);
+              for (const ev of (d.eventi || [])) {
+                if (conContenuto.has(ev.token)) meta[ev.token] = ev.nome;
+              }
             } catch (e) {}
           }
           done();
         });
       });
-    }
 
-    // cartelle evento "Nome [TOKEN]" (nuovo formato)
-    for (const c of nodiMega()) {
-      if (!c.name) continue;
-      const m = c.name.match(/\[([A-Za-z0-9_-]{8})\]$/);
-      if (!m) continue;
-      aggiungi(m[1], c.name.replace(/\s*\[[^\]]+\]$/, ''));
-      const numMedia = figliDi(c).filter(f => f.name &&
-        !f.name.startsWith('sfondo') && !/^dati-\d+\.json$/.test(f.name)).length;
-      lista[m[1]].num_media = Math.max(lista[m[1]].num_media, numMedia);
-    }
-    // vecchi file piatti "TOKEN_file.ext" (backup v4/v5)
-    for (const f of nodiMega()) {
-      if (!f.name) continue;
-      const m = f.name.match(new RegExp(`^([A-Za-z0-9_-]{8})_.+\\.(${EST_MEDIA.join('|')})$`, 'i'));
-      if (m) { aggiungi(m[1]); lista[m[1]].num_media++; }
-    }
+      // cartelle evento
+      for (const c of nodiMega()) {
+        const m = c.name && c.name.match(/\[([A-Za-z0-9_-]{8})\]$/);
+        if (!m || !conContenuto.has(m[1])) continue;
+        const token = m[1];
+        if (!lista[token]) {
+          lista[token] = {
+            token,
+            nome: c.name.replace(/\s*\[[^\]]+\]$/, '') || meta[token] || 'Evento (backup)',
+            num_media: 0
+          };
+        }
+        lista[token].num_media = figliDi(c).filter(f => f.name &&
+          !f.name.startsWith('sfondo') && !/^dati-\d+\.json$/.test(f.name)).length;
+      }
+      // vecchi file piatti
+      for (const f of nodiMega()) {
+        const m = f.name && f.name.match(new RegExp(`^([A-Za-z0-9_-]{8})_.+\\.(${EST_MEDIA.join('|')})$`, 'i'));
+        if (!m) continue;
+        const token = m[1];
+        if (!lista[token]) lista[token] = { token, nome: meta[token] || 'Evento (backup)', num_media: 0 };
+        lista[token].num_media++;
+      }
 
-    res.json(Object.values(lista).map(e => ({
-      ...e,
-      gia_presente: !!db.prepare('SELECT id FROM eventi WHERE token = ?').get(e.token)
-    })));
-  } catch (e) { res.status(500).json({ errore: e.message }); }
+      res.json(Object.values(lista).map(e => ({
+        ...e,
+        gia_presente: !!db.prepare('SELECT id FROM eventi WHERE token = ?').get(e.token)
+      })));
+    } catch (e) { res.status(500).json({ errore: e.message }); }
+  });
 });
 
 // ---------- RIPRISTINO SELETTIVO ----------
@@ -529,7 +595,6 @@ app.post('/admin/ripristino', soloAdmin, (req, res) => {
 
 app.get('/admin/stato-ripristino', soloAdmin, (req, res) => res.json(ripristino));
 
-// inserisce eventi e record foto mancanti (mai duplicati)
 function applicaMeta(dati, tokens) {
   const insEvento = db.prepare(`INSERT INTO eventi
     (token, nome, data_evento, qualita, attivo, creato_il, sfondo, archiviato) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
@@ -555,20 +620,17 @@ function applicaMeta(dati, tokens) {
   })();
 }
 
-// prova gli snapshot dal più recente, restituisce il primo leggibile
 function scaricaSnapshotValido(snaps, cb) {
   const prova = (i) => {
     if (i < 0) return cb(null);
     snaps[i].downloadBuffer((err, buf) => {
       if (err) return prova(i - 1);
-      try { cb(JSON.parse(buf.toString('utf8'))); }
-      catch (e) { prova(i - 1); }
+      try { cb(JSON.parse(buf.toString('utf8'))); } catch (e) { prova(i - 1); }
     });
   };
   prova(snaps.length - 1);
 }
 
-// fallback senza snapshot globale: usa i JSON dentro le cartelle evento
 function ripristinoDaJsonPerEvento(tokens, done) {
   let i = 0;
   const prossima = () => {
@@ -598,32 +660,30 @@ function finalizzaRipristino() {
 
 function eseguiRipristino(tokens) {
   try {
-    const snaps = nodiMega().filter(f => f.name && /^db-snapshot-\d+\.json$/.test(f.name))
-      .sort((a, b) => a.name.localeCompare(b.name));
-    const dopoMeta = () => scaricaSelezionati(tokens, finalizzaRipristino);
+    aggiornaIndice(() => {
+      const snaps = nodiMega().filter(f => f.name && /^db-snapshot-\d+\.json$/.test(f.name))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      const dopoMeta = () => scaricaSelezionati(tokens, finalizzaRipristino);
 
-    if (snaps.length) {
-      ripristino.messaggio = 'Scarico lo snapshot del database…';
-      scaricaSnapshotValido(snaps, (dati) => {
-        if (dati) {
-          try { applicaMeta(dati, tokens); }
-          catch (e) { ripristino.errori++; }
-          dopoMeta();
-        } else {
-          ripristino.messaggio = 'Snapshot illeggibile: uso i JSON di ogni evento…';
-          ripristinoDaJsonPerEvento(tokens, dopoMeta);
-        }
-      });
-    } else {
-      ripristinoDaJsonPerEvento(tokens, dopoMeta);
-    }
+      if (snaps.length) {
+        ripristino.messaggio = 'Scarico lo snapshot del database…';
+        scaricaSnapshotValido(snaps, (dati) => {
+          if (dati) {
+            try { applicaMeta(dati, tokens); } catch (e) { ripristino.errori++; }
+            dopoMeta();
+          } else {
+            ripristino.messaggio = 'Snapshot illeggibile: uso i JSON di ogni evento…';
+            ripristinoDaJsonPerEvento(tokens, dopoMeta);
+          }
+        });
+      } else ripristinoDaJsonPerEvento(tokens, dopoMeta);
+    });
   } catch (e) {
     ripristino.in_corso = false;
     ripristino.messaggio = 'Errore durante il ripristino: ' + e.message;
   }
 }
 
-// scarica i media dei SOLO token scelti (cartelle nuove + vecchi file piatti)
 function scaricaSelezionati(tokens, done) {
   const tasks = [];
 
@@ -644,7 +704,6 @@ function scaricaSelezionati(tokens, done) {
     }
   }
 
-  // sfondi mancanti sul disco
   for (const token of tokens) {
     const ev = db.prepare('SELECT sfondo FROM eventi WHERE token = ?').get(token);
     if (!ev || !ev.sfondo) continue;
