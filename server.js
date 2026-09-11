@@ -1,10 +1,10 @@
 // ============================================================
-//  SERVER - App foto/video evento con QR code — v6.4
+//  SERVER - App foto/video evento con QR code — v6.5
 //  MEGA: /FOTO-EVENTI/<Evento [TOKEN]>/
-//  - figliDi() corretto (children/parent) → ripristino OK
-//  - tipo media da mimetype + estensione → video sempre riconosciuti
+//  - figliDi() via children/parent (campo megajs: "parent")
+//  - tipo media da mimetype + estensione
 //  - sweep video all'avvio: ripara tipi, converte HEVC/mov/webm,
-//    genera anteprime mancanti, backup MEGA del file finale
+//    genera anteprime, backup MEGA del file finale
 // ============================================================
 
 const express = require('express');
@@ -17,6 +17,8 @@ const fs = require('fs');
 const os = require('os');
 const { execFile } = require('child_process');
 const QRCode = require('qrcode');
+
+const VERSIONE = '6.5';
 
 function rilevaIPLocale() {
   const interfacce = os.networkInterfaces();
@@ -44,7 +46,6 @@ const EST_VIDEO = ['.webm', '.mp4', '.mov', '.mkv', '.3gp'];
 const EST_VIDEO_IMG = /\.(mp4|webm|mov|mkv|3gp)\.jpg$/i;   // anteprime generate dal server
 const E_VIDEO = (f) => EST_VIDEO.includes(path.extname(f || '').toLowerCase());
 
-// ffmpeg (binario statico installato con npm)
 let FFMPEG_PATH = null;
 try { FFMPEG_PATH = require('ffmpeg-static'); } catch (e) { FFMPEG_PATH = null; }
 
@@ -85,6 +86,9 @@ const storageMulter = multer.diskStorage({
 });
 const caricamento = multer({ storage: storageMulter, limits: { fileSize: 100 * 1024 * 1024 } });
 
+// ---------- STATO OPERAZIONI LUNGHE (dichiarato prima dell'uso) ----------
+const ripristino = { in_corso: false, messaggio: 'Mai avviato', eventi: 0, media: 0, errori: 0, totale: 0 };
+
 // ---------- CONNESSIONE MEGA ----------
 let megaStorage = null;
 let megaPronto = false;
@@ -110,8 +114,7 @@ if (process.env.MEGA_EMAIL && process.env.MEGA_PASSWORD) {
 
 // ============================================================
 //  LIVELLO MEGA
-//  figliDi(): usa children (megajs) o il campo parent.
-//  ⚠️ il campo dei nodi megajs si chiama "parent", NON parentNodeId
+//  figliDi(): usa children (presente in megajs) o il campo "parent"
 // ============================================================
 const RADICE_MEGA = 'FOTO-EVENTI';
 const CART_SISTEMA = '_sistema';
@@ -295,8 +298,7 @@ function eliminaCartellaEvento(token) {
 }
 
 // ============================================================
-//  ELABORAZIONE VIDEO (coda seriale): conversione MP4 H.264,
-//  rilevazione HEVC, anteprime .jpg, backup MEGA del file finale
+//  ELABORAZIONE VIDEO (coda seriale)
 // ============================================================
 const codaVideo = [];
 let conversioneAttiva = false;
@@ -394,7 +396,6 @@ function preparaVideo(job, done) {
   };
 
   if (ext === '.mp4') {
-    // analizza il codec: HEVC (iPhone ecc.) non si riproduce nei browser
     execFile(FFMPEG_PATH, ['-i', origine], { timeout: 20000, maxBuffer: 10 * 1024 * 1024 },
       (err, so, se) => {
         const out = (se || '') + (so || '');
@@ -480,6 +481,8 @@ function soloAdmin(req, res, next) {
   if (req.session && req.session.admin) return next();
   res.status(401).json({ errore: 'Non autorizzato' });
 }
+
+app.get('/version', (req, res) => res.json({ versione: VERSIONE }));
 
 app.post('/admin/login', (req, res) => {
   if (req.body.password === PASSWORD_ADMIN) { req.session.admin = true; return res.json({ ok: true }); }
@@ -618,17 +621,14 @@ app.get('/galleria/:token', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'galleria.html'));
 });
 
-// ---------- CARICAMENTO FOTO E VIDEO ----------
 app.post('/upload', caricamento.single('media'), (req, res) => {
   const ev = db.prepare('SELECT token, nome FROM eventi WHERE token = ? AND attivo = 1').get(req.body.token);
   if (!ev) return res.status(403).json({ errore: 'Evento non valido o chiuso' });
-  // tipo: mimetype + estensione (i telefoni a volte inviano mimetype incompleti)
   const tipo = (req.file.mimetype.startsWith('video/') || E_VIDEO(req.file.filename)) ? 'video' : 'foto';
   db.prepare('INSERT INTO foto (evento_token, filename, invitato, tipo) VALUES (?, ?, ?, ?)')
     .run(ev.token, req.file.filename, (req.body.nome || 'Invitato').slice(0, 50), tipo);
 
   if (tipo === 'video') {
-    // tutta l'elaborazione (codec check / conversione / anteprima / backup) in coda
     accodaConversioneVideo(ev, req.file.filename);
   } else {
     backupMega(req.file.path, req.file.filename, ev);
@@ -705,9 +705,7 @@ app.get('/admin/eventi-mega', soloAdmin, (req, res) => {
   });
 });
 
-// ---------- RIPRISTINO SELETTIVO + CONVERSIONE ----------
-const ripristino = { in_corso: false, messaggio: 'Mai avviato', eventi: 0, media: 0, errori: 0, totale: 0 };
-
+// ---------- RIPRISTINO SELETTIVO ----------
 app.post('/admin/ripristino', soloAdmin, (req, res) => {
   if (!megaStorage || !megaPronto) {
     return res.status(400).json({ errore: 'MEGA non configurato: servono MEGA_EMAIL e MEGA_PASSWORD' });
@@ -732,7 +730,7 @@ app.post('/admin/converti-video', soloAdmin, (req, res) => {
     WHERE f.tipo = 'video'
   `).all().filter(v => {
     const p = path.join(CARTELLA_FOTO, v.filename);
-    return fs.existsSync(p) && !fs.existsSync(p + '.jpg'); // senza anteprima = da elaborare
+    return fs.existsSync(p) && !fs.existsSync(p + '.jpg');
   });
   if (!candidati.length) return res.json({ ok: true, nessuno: true });
   ripristino.in_corso = true;
@@ -848,7 +846,7 @@ function scaricaSelezionati(tokens, done) {
         if (!f.name) continue;
         if (f.name.startsWith('sfondo')) continue;
         if (/^dati-\d+\.json$/.test(f.name)) continue;
-        if (EST_VIDEO_IMG.test(f.name)) continue; // le anteprime si rigenerano
+        if (EST_VIDEO_IMG.test(f.name)) continue;
         tasks.push({ f, token, filename: f.name });
       }
     }
@@ -906,7 +904,6 @@ function scaricaSelezionati(tokens, done) {
               .run(t.token, t.filename, 'Invitato', quando, tipo);
             ripristino.media++;
           }
-          // ogni video ripristinato va elaborato (codec/anteprima/backup)
           if (E_VIDEO(t.filename)) {
             const evR = db.prepare('SELECT token, nome FROM eventi WHERE token = ?').get(t.token);
             if (evR) accodaConversioneVideo(evR, t.filename);
@@ -920,15 +917,12 @@ function scaricaSelezionati(tokens, done) {
 }
 
 // ---------- MANUTENZIONE ALL'AVVIO ----------
-// 1) ripara i tipi salvati con mimetype sbagliato (video registrati come foto)
 function riparaTipiMedia() {
   const cond = EST_VIDEO.map(e => `LOWER(filename) LIKE '%${e}'`).join(' OR ');
   const info = db.prepare(`UPDATE foto SET tipo = 'video' WHERE tipo != 'video' AND (${cond})`).run();
   if (info.changes) console.log(`🎬 Riparati ${info.changes} media registrati con tipo errato`);
 }
 
-// 2) ogni video senza anteprima viene elaborato: HEVC→MP4, mov/webm→MP4,
-//    H.264→solo anteprima; poi backup MEGA del file finale
 function elaboraVideoEsistenti() {
   if (!FFMPEG_PATH) return;
   riparaTipiMedia();
@@ -939,7 +933,7 @@ function elaboraVideoEsistenti() {
     if (!ev) continue;
     const percorso = path.join(CARTELLA_FOTO, v.filename);
     if (!fs.existsSync(percorso)) continue;
-    if (fs.existsSync(percorso + '.jpg')) continue; // già elaborato in passato
+    if (fs.existsSync(percorso + '.jpg')) continue;
     accodaConversioneVideo(ev, v.filename);
     n++;
   }
@@ -950,7 +944,7 @@ app.use(express.static('public'));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`✅ Server avviato sulla porta ${PORT}`);
+  console.log(`✅ Server foto-eventi v${VERSIONE} avviato sulla porta ${PORT}`);
   console.log(`   Pannello admin:  ${URL_BASE}/admin`);
   console.log(`🎬 ffmpeg: ${FFMPEG_PATH ? 'disponibile' : 'NON disponibile'}`);
   elaboraVideoEsistenti();

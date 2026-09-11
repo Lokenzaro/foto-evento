@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- ⬇️ PANNELLO ADMIN (admin.html) — v6.4 responsive -->
+<!-- ⬇️ PANNELLO ADMIN (admin.html) — v6.5 responsive -->
 <html lang="it">
 <head>
 <meta charset="utf-8">
@@ -146,7 +146,7 @@
       <p class="muted-note">☁️ Su MEGA ogni evento ha la sua cartella dentro «FOTO-EVENTI»; snapshot del database in «_sistema».</p>
     </div>
 
-    <p class="tag-versione">pannello admin · v6.4</p>
+    <p class="tag-versione">pannello admin · v6.5</p>
   </main>
 </div>
 
@@ -204,6 +204,7 @@ async function carica() {
   const eventi = await (await fetch('/api/eventi')).json();
   const vediArchiviati = $('#vedi-archiviati').checked;
 
+  // ordinamento: attivi (per data) → chiusi → archiviati
   eventi.sort((a, b) => {
     const ar = (x) => x.archiviato ? 2 : (x.attivo ? 0 : 1);
     if (ar(a) !== ar(b)) return ar(a) - ar(b);
@@ -351,7 +352,7 @@ async function avviaConversione() {
   const r = await fetch('/admin/converti-video', { method: 'POST' });
   const d = await r.json();
   if (!r.ok) return alert(d.errore || 'Errore avvio conversione');
-  if (d.nessuno) return alert('Tutti i video sono già in MP4: niente da convertire.');
+  if (d.nessuno) return alert('Tutti i video sono già elaborati: niente da convertire.');
   $('#ripristino').style.display = 'block';
   clearInterval(window._tRip);
   window._tRip = setInterval(statoRipristino, 2000);
