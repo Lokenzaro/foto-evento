@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- ⬇️ PANNELLO ADMIN (admin.html) — v6.5 responsive -->
+<!-- ⬇️ PANNELLO ADMIN (admin.html) — v6.5.1 responsive -->
 <html lang="it">
 <head>
 <meta charset="utf-8">
@@ -109,6 +109,8 @@
     <div class="azioni">
       <button class="cloud" onclick="apriDialogRipristino()">☁️ Ripristina</button>
       <button class="cloud" onclick="avviaConversione()">🛠️ Converti video</button>
+      <button class="cloud" onclick="pulisciCacheRender()"
+              title="Redeploy con pulizia cache: il servizio sarà offline 2-5 minuti">🔄 Redeploy</button>
       <button class="gray" onclick="logout()">Esci</button>
     </div>
   </header>
@@ -143,10 +145,10 @@
       </label>
       <p class="muted-note">Gli eventi chiusi 🔒 restano in fondo alla pagina, attenuati; quelli attivi sono in evidenza in ordine di data.</p>
       <p class="muted-note">🌄 «Sfondo» carica l'immagine della pagina invitati • Gli invitati inviano foto e video (i video iPhone vengono convertiti automaticamente in MP4).</p>
-      <p class="muted-note">☁️ Su MEGA ogni evento ha la sua cartella dentro «FOTO-EVENTI»; snapshot del database in «_sistema».</p>
+      <p class="muted-note">☁️ Su MEGA ogni evento ha la sua cartella dentro «FOTO-EVENTI»; snapshot del database in «_sistema». «🔄 Redeploy» riavvia il servizio con cache pulita (usare solo a evento terminato).</p>
     </div>
 
-    <p class="tag-versione">pannello admin · v6.5</p>
+    <p class="tag-versione">pannello admin · v6.5.1</p>
   </main>
 </div>
 
@@ -199,6 +201,29 @@ async function login() {
 async function logout() { await fetch('/admin/logout', { method:'POST' }); location.reload(); }
 function entra() { $('#login').style.display='none'; $('#pannello').style.display='block'; carica(); }
 function chiudi(id) { document.getElementById(id).style.display = 'none'; }
+
+// --- REDEPLOY CON PULIZIA CACHE (API Render) ---
+// ⚠️ il servizio resta offline 2-5 minuti: usare solo a evento terminato
+async function pulisciCacheRender() {
+  if (!confirm('Questa operazione riavvia il servizio con pulizia della cache:\n' +
+      'l\'app resterà OFFLINE per 2-5 MINUTI.\n\n' +
+      'Procedere solo se l\'evento è terminato. Continuare?')) {
+    return;
+  }
+
+  try {
+    const r = await fetch('/admin/clear-render-cache', { method: 'POST' });
+    const d = await r.json();
+
+    if (!r.ok) {
+      return alert('Errore: ' + (d.errore || 'Impossibile completare l\'operazione'));
+    }
+
+    alert(d.messaggio);
+  } catch (e) {
+    alert('Errore di rete o server non raggiungibile: ' + e.message);
+  }
+}
 
 async function carica() {
   const eventi = await (await fetch('/api/eventi')).json();

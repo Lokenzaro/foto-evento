@@ -1,10 +1,13 @@
 // ============================================================
-//  SERVER - App foto/video evento con QR code — v6.5
+//  SERVER - App foto/video evento con QR code — v6.5.1
 //  MEGA: /FOTO-EVENTI/<Evento [TOKEN]>/
 //  - figliDi() via children/parent (campo megajs: "parent")
 //  - tipo media da mimetype + estensione
 //  - sweep video all'avvio: ripara tipi, converte HEVC/mov/webm,
 //    genera anteprime, backup MEGA del file finale
+//  - v6.5.1: endpoint /admin/clear-render-cache (redeploy con
+//    pulizia cache via API Render, richiede RENDER_API_KEY e
+//    RENDER_SERVICE_ID)
 // ============================================================
 
 const express = require('express');
@@ -18,7 +21,7 @@ const os = require('os');
 const { execFile } = require('child_process');
 const QRCode = require('qrcode');
 
-const VERSIONE = '6.5';
+const VERSIONE = '6.5.1';
 
 function rilevaIPLocale() {
   const interfacce = os.networkInterfaces();
@@ -489,6 +492,46 @@ app.post('/admin/login', (req, res) => {
   res.status(401).json({ errore: 'Password errata' });
 });
 app.post('/admin/logout', (req, res) => req.session.destroy(() => res.json({ ok: true })));
+
+// Redeploy con pulizia cache (API Render): ricostruisce l'ambiente e
+// riavvia il servizio → l'indice MEGA si ricarica pulito da MEGA.
+// ⚠️ il servizio resta offline per tutta la durata del deploy (2-5 min)
+app.post('/admin/clear-render-cache', soloAdmin, async (req, res) => {
+  const apiKey = process.env.RENDER_API_KEY;
+  const serviceId = process.env.RENDER_SERVICE_ID;
+
+  if (!apiKey || !serviceId) {
+    return res.status(400).json({
+      errore: 'Variabili RENDER_API_KEY e RENDER_SERVICE_ID non configurate nel server.'
+    });
+  }
+
+  try {
+    const response = await fetch(`https://api.render.com/v1/services/${serviceId}/deploys`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        clearCache: "clear"
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return res.status(response.status).json({
+        errore: data.message || 'Errore durante la richiesta a Render.'
+      });
+    }
+
+    res.json({ ok: true, messaggio: 'Pulizia cache e redeploy avviati su Render con successo! Il servizio sarà online tra 2-5 minuti.', deploy: data });
+  } catch (err) {
+    res.status(500).json({ errore: 'Errore di connessione con le API di Render: ' + err.message });
+  }
+});
 
 app.get('/api/eventi', soloAdmin, (req, res) => {
   const eventi = db.prepare(`
