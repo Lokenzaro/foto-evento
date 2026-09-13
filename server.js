@@ -1,17 +1,16 @@
 // ============================================================
-//  SERVER - App foto/video evento con QR code — v6.5.1
+//  SERVER - App foto/video evento con QR code — v6.5.2
 //  MEGA: /FOTO-EVENTI/<Evento [TOKEN]>/
-//  - figliDi() via children/parent (campo megajs: "parent")
-//  - tipo media da mimetype + estensione
-//  - sweep video all'avvio: ripara tipi, converte HEVC/mov/webm,
-//    genera anteprime, backup MEGA del file finale
-//  - v6.5.1: endpoint /admin/clear-render-cache (redeploy con
-//    pulizia cache via API Render, richiede RENDER_API_KEY e
-//    RENDER_SERVICE_ID)
+//  - v6.5.1: endpoint /admin/clear-render-cache (redeploy)
+//  🔒 PATCH SICUREZZA v6.5.2:
+//     A) rate limiting su login e upload (anti brute-force/flood)
+//     B) cookie di sessione rafforzati (httpOnly, sameSite, secure)
+//     C) whitelist dei tipi di file caricati (anti stored-XSS)
 // ============================================================
 
 const express = require('express');
 const session = require('express-session');
+const { rateLimit } = require('express-rate-limit');
 const Database = require('better-sqlite3');
 const multer = require('multer');
 const crypto = require('crypto');
@@ -21,7 +20,7 @@ const os = require('os');
 const { execFile } = require('child_process');
 const QRCode = require('qrcode');
 
-const VERSIONE = '6.5.1';
+const VERSIONE = '6.5.2';
 
 function rilevaIPLocale() {
   const interfacce = os.networkInterfaces();
@@ -35,6 +34,14 @@ function rilevaIPLocale() {
 
 const URL_BASE = process.env.URL_BASE || `http://${rilevaIPLocale()}:3000`;
 const PASSWORD_ADMIN = process.env.ADMIN_PASSWORD || 'admin123';
+
+// 🔒 PATCH (bonus): avviso se si usa la password predefinita in produzione
+if (PASSWORD_ADMIN === 'admin123' &&
+    (process.env.RENDER_EXTERNAL_URL || process.env.NODE_ENV === 'production')) {
+  console.warn('⚠️ ATTENZIONE: stai usando la password admin predefinita! ' +
+    'Imposta la variabile ADMIN_PASSWORD su Render.');
+}
+
 const DATA_DIR = process.env.DATA_DIR || '.';
 const CARTELLA_FOTO = path.join(DATA_DIR, 'uploads');
 
@@ -46,7 +53,7 @@ const ESTENSIONI = {
 };
 const EST_MEDIA = ['jpg','jpeg','png','gif','webp','heic','heif','webm','mp4','mov','mkv','3gp'];
 const EST_VIDEO = ['.webm', '.mp4', '.mov', '.mkv', '.3gp'];
-const EST_VIDEO_IMG = /\.(mp4|webm|mov|mkv|3gp)\.jpg$/i;   // anteprime generate dal server
+const EST_VIDEO_IMG = /\.(mp4|webm|mov|mkv|3gp)\.jpg$/i;
 const E_VIDEO = (f) => EST_VIDEO.includes(path.extname(f || '').toLowerCase());
 
 let FFMPEG_PATH = null;
@@ -78,6 +85,16 @@ try { db.exec("ALTER TABLE foto ADD COLUMN tipo TEXT DEFAULT 'foto'"); } catch (
 
 fs.mkdirSync(CARTELLA_FOTO, { recursive: true });
 
+// 🔒 PATCH C: whitelist dei tipi ammessi. Accetta i MIME multimediali
+// noti oppure file con estensione media (alcuni telefoni inviano
+// mimetype generici). Blocca HTML/JS/eseguibili → niente stored-XSS.
+const MIME_AMMESSI = [
+  'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif',
+  'video/webm', 'video/mp4', 'video/quicktime', 'video/x-matroska', 'video/3gpp'
+];
+const estAmmessa = (nome) =>
+  EST_MEDIA.includes(path.extname(nome || '').toLowerCase().replace('.', ''));
+
 const storageMulter = multer.diskStorage({
   destination: (req, file, cb) => cb(null, CARTELLA_FOTO),
   filename: (req, file, cb) => {
@@ -87,9 +104,18 @@ const storageMulter = multer.diskStorage({
     cb(null, crypto.randomBytes(12).toString('hex') + ext);
   }
 });
-const caricamento = multer({ storage: storageMulter, limits: { fileSize: 100 * 1024 * 1024 } });
+const caricamento = multer({
+  storage: storageMulter,
+  limits: { fileSize: 100 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (MIME_AMMESSI.includes(file.mimetype) || estAmmessa(file.originalname)) {
+      return cb(null, true);
+    }
+    cb(new Error('Tipo di file non ammesso (solo foto e video)'));
+  }
+});
 
-// ---------- STATO OPERAZIONI LUNGHE (dichiarato prima dell'uso) ----------
+// ---------- STATO OPERAZIONI LUNGHE ----------
 const ripristino = { in_corso: false, messaggio: 'Mai avviato', eventi: 0, media: 0, errori: 0, totale: 0 };
 
 // ---------- CONNESSIONE MEGA ----------
@@ -117,7 +143,6 @@ if (process.env.MEGA_EMAIL && process.env.MEGA_PASSWORD) {
 
 // ============================================================
 //  LIVELLO MEGA
-//  figliDi(): usa children (presente in megajs) o il campo "parent"
 // ============================================================
 const RADICE_MEGA = 'FOTO-EVENTI';
 const CART_SISTEMA = '_sistema';
@@ -473,12 +498,43 @@ function eseguiSnapshot() {
 
 // ---------- APP ----------
 const app = express();
-app.use(express.json());
+
+// 🔒 PATCH B: su Render il traffico passa da un proxy HTTPS: serve
+// per i cookie "secure" e per far funzionare correttamente il
+// rate limiting sugli IP reali dei visitatori
+app.set('trust proxy', 1);
+
+// 🔒 PATCH A: limiti di frequenza
+const limiterLogin = rateLimit({
+  windowMs: 15 * 60 * 1000,          // finestra di 15 minuti
+  limit: 10,                          // max 10 tentativi di login per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { errore: 'Troppi tentativi: riprova tra 15 minuti.' }
+});
+const limiterUpload = rateLimit({
+  windowMs: 60 * 60 * 1000,          // finestra di 1 ora
+  limit: 150,                         // max 150 upload per ora per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { errore: 'Troppi invii: attendi prima di riprovare.' }
+});
+app.use('/admin/login', limiterLogin);
+app.use('/upload', limiterUpload);
+
+// 🔒 PATCH B: cookie di sessione rafforzati
 app.use(session({
   secret: process.env.SESSION_SECRET || 'cambia-questa-frase-segreta!',
   resave: false,
-  saveUninitialized: false
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true,     // il cookie non è leggibile da JavaScript
+    sameSite: 'strict', // protezione anti-CSRF
+    secure: !!process.env.RENDER_EXTERNAL_URL || process.env.NODE_ENV === 'production'
+  }                     // in produzione solo via HTTPS (su Render automatico)
 }));
+
+app.use(express.json());
 
 function soloAdmin(req, res, next) {
   if (req.session && req.session.admin) return next();
@@ -493,9 +549,7 @@ app.post('/admin/login', (req, res) => {
 });
 app.post('/admin/logout', (req, res) => req.session.destroy(() => res.json({ ok: true })));
 
-// Redeploy con pulizia cache (API Render): ricostruisce l'ambiente e
-// riavvia il servizio → l'indice MEGA si ricarica pulito da MEGA.
-// ⚠️ il servizio resta offline per tutta la durata del deploy (2-5 min)
+// Redeploy con pulizia cache (API Render)
 app.post('/admin/clear-render-cache', soloAdmin, async (req, res) => {
   const apiKey = process.env.RENDER_API_KEY;
   const serviceId = process.env.RENDER_SERVICE_ID;
@@ -514,9 +568,7 @@ app.post('/admin/clear-render-cache', soloAdmin, async (req, res) => {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`
       },
-      body: JSON.stringify({
-        clearCache: "clear"
-      })
+      body: JSON.stringify({ clearCache: "clear" })
     });
 
     const data = await response.json();
@@ -678,6 +730,16 @@ app.post('/upload', caricamento.single('media'), (req, res) => {
   }
   programmaSnapshot();
   res.json({ ok: true, tipo });
+});
+
+// 🔒 PATCH A+C: risposta JSON pulita per errori di upload
+// (file non ammesso, troppo grande, limiti di frequenza superati)
+app.use((err, req, res, next) => {
+  if (err) {
+    console.error('⚠️ Richiesta rifiutata:', err.message);
+    return res.status(400).json({ errore: err.message || 'Richiesta non valida' });
+  }
+  next();
 });
 
 // ---------- ELENCO BACKUP: SOLO eventi con file reali su MEGA ----------
@@ -990,5 +1052,6 @@ app.listen(PORT, () => {
   console.log(`✅ Server foto-eventi v${VERSIONE} avviato sulla porta ${PORT}`);
   console.log(`   Pannello admin:  ${URL_BASE}/admin`);
   console.log(`🎬 ffmpeg: ${FFMPEG_PATH ? 'disponibile' : 'NON disponibile'}`);
+  console.log(`🔒 Sicurezza: rate-limiting, cookie protetti, whitelist upload: ATTIVE`);
   elaboraVideoEsistenti();
 });
