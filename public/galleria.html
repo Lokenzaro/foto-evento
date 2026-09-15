@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- ⬇️ GALLERIA LIVE (galleria.html) — v6.5 -->
+<!-- ⬇️ GALLERIA LIVE (galleria.html) — v6.5.4: reazioni + podio + condividi -->
 <html lang="it">
 <head>
 <meta charset="utf-8">
@@ -17,7 +17,25 @@
     background: linear-gradient(90deg, #a78bfa, #f472b6);
     -webkit-background-clip: text; background-clip: text; color: transparent; }
   header p { margin: .2rem 0 0; color: #e94560; font-weight: 600; }
-  #conteggio { text-align: center; color: #94a3b8; margin: .4rem 0 .8rem; }
+  .share { display: inline-block; margin-top: .5rem; background: rgba(255,255,255,.08);
+    border: 1px solid rgba(255,255,255,.22); color: #e2e8f0; border-radius: 99px;
+    padding: .4rem 1rem; cursor: pointer; font-family: inherit; font-size: .85rem; }
+  .share:hover { filter: brightness(1.2); }
+  #conteggio { text-align: center; color: #94a3b8; margin: .4rem 0 .6rem; }
+
+  /* 🏆 PODIO */
+  #podio { max-width: 1200px; margin: 0 auto .4rem; padding: 0 6px; display: none; }
+  .podio-titolo { text-align: center; color: #fbbf24; font-weight: 800; margin: .2rem 0 .5rem; }
+  .podio-riga { display: flex; gap: 8px; justify-content: center; }
+  .podio-cella { flex: 1; max-width: 170px; background: rgba(251,191,36,.07);
+    border: 1px solid rgba(251,191,36,.28); border-radius: 12px; padding: .5rem;
+    text-align: center; cursor: pointer; }
+  .podio-cella:hover { filter: brightness(1.15); }
+  .podio-cella img, .podio-cella video { width: 100%; aspect-ratio: 1; object-fit: cover;
+    border-radius: 8px; display: block; }
+  .podio-med { font-size: 1.3rem; line-height: 1.2; }
+  .podio-n { color: #fde68a; font-size: .85rem; margin-top: .25rem; }
+
   #griglia { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
     gap: 6px; padding: 0 6px 24px; max-width: 1200px; margin: 0 auto; }
   .cella { position: relative; border-radius: 10px; overflow: hidden; cursor: zoom-in;
@@ -26,11 +44,20 @@
   .cella .icona-video { position: absolute; inset: 0; display: flex; align-items: center;
     justify-content: center; font-size: 2rem; pointer-events: none;
     text-shadow: 0 2px 10px rgba(0,0,0,.7); }
+  .cella .badge-r { position: absolute; left: 6px; bottom: 6px; background: rgba(0,0,0,.65);
+    color: #fff; font-size: .75rem; padding: .15rem .5rem; border-radius: 99px;
+    pointer-events: none; }
+
   #lightbox { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.95);
     z-index: 50; flex-direction: column; align-items: center; justify-content: center; }
-  #contenuto img, #contenuto video { max-width: 100%; max-height: 82vh; object-fit: contain; }
-  #info { margin-top: .6rem; color: #ccc; font-size: .95rem; text-align: center; }
+  #contenuto img, #contenuto video { max-width: 100%; max-height: 72vh; object-fit: contain; }
+  #info { margin-top: .4rem; color: #ccc; font-size: .95rem; text-align: center; }
   #info a { color: #7dd3fc; }
+  #reazioni-bar { display: none; gap: .6rem; margin-top: .6rem; }
+  .reaz { background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.22);
+    color: #fff; border-radius: 99px; padding: .45rem .95rem; font-size: 1.05rem;
+    cursor: pointer; font-family: inherit; }
+  .reaz.mia { background: rgba(168,85,247,.5); border-color: #a78bfa; }
   .nav { position: fixed; top: 50%; transform: translateY(-50%); font-size: 2.4rem;
     background: none; border: none; color: #fff; cursor: pointer; padding: 1rem; z-index: 51; }
   #prec { left: 2px; }  #succ { right: 2px; }
@@ -43,31 +70,70 @@
 <header>
   <h1>🖼️ Galleria live</h1>
   <p id="nome-evento">…</p>
+  <button class="share" onclick="condividi()">📤 Condividi la galleria</button>
 </header>
 <p id="conteggio"></p>
+<div id="podio"></div>
 <div id="griglia"></div>
-<p class="tag-versione">galleria · v6.5</p>
+<p class="tag-versione">galleria · v6.5.4</p>
 
 <div id="lightbox" onclick="chiudi()">
   <button id="chiudi">✕</button>
   <button class="nav" id="prec" onclick="event.stopPropagation(); naviga(-1)">‹</button>
   <div id="contenuto" onclick="event.stopPropagation()"></div>
   <div id="info" onclick="event.stopPropagation()"></div>
+  <div id="reazioni-bar" onclick="event.stopPropagation()"></div>
   <button class="nav" id="succ" onclick="event.stopPropagation(); naviga(1)">›</button>
 </div>
 
 <script>
 const token = location.pathname.split('/')[2];
+const REAZIONI = [ { k: 'heart', e: '❤️' }, { k: 'laugh', e: '😂' }, { k: 'fire', e: '🔥' } ];
+
+// ❤️ ID del telefono: identifica le reazioni "mie" (niente account)
+let CLIENT_ID = localStorage.getItem('client-id');
+if (!CLIENT_ID) {
+  CLIENT_ID = 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  localStorage.setItem('client-id', CLIENT_ID);
+}
+
 let media = [], indice = 0, ultimoNumero = -1;
+let counts = {}, mieR = {};
+let lastReaKey = '';
 
 fetch('/api/evento/' + token).then(r => r.ok ? r.json() : null)
   .then(d => document.getElementById('nome-evento').textContent = d ? d.nome : '');
 
+function totReazioni(fn) {
+  const c = counts[fn];
+  if (!c) return 0;
+  return (c.heart || 0) + (c.laugh || 0) + (c.fire || 0);
+}
+function emojiTop(fn) {
+  const c = counts[fn]; if (!c) return '❤️';
+  let best = 'heart', n = -1;
+  for (const r of REAZIONI) if ((c[r.k] || 0) > n) { n = c[r.k] || 0; best = r.k; }
+  return n > 0 ? REAZIONI.find(x => x.k === best).e : '❤️';
+}
+
 async function aggiorna() {
   try {
-    media = await (await fetch('/api/foto/' + token)).json();
+    const [m, r] = await Promise.all([
+      fetch('/api/foto/' + token).then(x => x.json()),
+      fetch('/api/reazioni/' + token + '?client=' + encodeURIComponent(CLIENT_ID))
+        .then(x => x.ok ? x.json() : { conteggi: {}, mie: {} })
+    ]);
+    media = m;
+    counts = r.conteggi || {};
+    mieR = r.mie || {};
+
     if (media.length !== ultimoNumero) { ultimoNumero = media.length; disegna(); }
-    const nf = media.filter(m => m.tipo !== 'video').length;
+    else aggiornaBadge();
+
+    const key = JSON.stringify([counts, mieR]);
+    if (key !== lastReaKey) { lastReaKey = key; aggiornaPodio(); aggiornaBarra(); }
+
+    const nf = media.filter(x => x.tipo !== 'video').length;
     const nv = media.length - nf;
     document.getElementById('conteggio').textContent = media.length
       ? `${nf} foto e ${nv} video condivisi 🎉`
@@ -81,13 +147,14 @@ function disegna() {
   media.forEach((m, i) => {
     const cella = document.createElement('div');
     cella.className = 'cella';
+    cella.dataset.fn = m.filename;
     cella.onclick = () => apri(i);
     if (m.tipo === 'video') {
       const ic = document.createElement('span');
       ic.className = 'icona-video'; ic.textContent = '▶️';
       const img = document.createElement('img');
       img.alt = ''; img.loading = 'lazy';
-      img.src = m.url + '.jpg'; // anteprima generata dal server
+      img.src = m.url + '.jpg';
       img.onerror = () => {
         img.remove();
         const v = document.createElement('video');
@@ -101,8 +168,41 @@ function disegna() {
       img.src = m.url; img.loading = 'lazy';
       cella.append(img);
     }
+    const badge = document.createElement('span');
+    badge.className = 'badge-r';
+    cella.append(badge);
     g.append(cella);
   });
+  aggiornaBadge();
+}
+
+function aggiornaBadge() {
+  document.querySelectorAll('#griglia .cella').forEach(cella => {
+    const fn = cella.dataset.fn;
+    const tot = totReazioni(fn);
+    const badge = cella.querySelector('.badge-r');
+    if (!badge) return;
+    badge.textContent = tot > 0 ? `${emojiTop(fn)} ${tot}` : '';
+  });
+}
+
+function aggiornaPodio() {
+  const podio = document.getElementById('podio');
+  const lista = media.map((m, i) => ({ i, fn: m.filename, tot: totReazioni(m.filename) }))
+    .filter(x => x.tot > 0).sort((a, b) => b.tot - a.tot).slice(0, 3);
+  if (!lista.length) { podio.style.display = 'none'; podio.innerHTML = ''; return; }
+  podio.style.display = 'block';
+  const medaglie = ['🥇', '🥈', '🥉'];
+  podio.innerHTML = '<div class="podio-titolo">🏆 Le più amate</div><div class="podio-riga">' +
+    lista.map((x, k) => {
+      const m = media[x.i];
+      const thumb = m.tipo === 'video' ? m.url + '.jpg' : m.url;
+      return `<div class="podio-cella" onclick="apri(${x.i})">
+        <div class="podio-med">${medaglie[k]}</div>
+        <img src="${thumb}" onerror="this.style.visibility='hidden'">
+        <div class="podio-n">${x.tot} ${emojiTop(x.fn)}</div>
+      </div>`;
+    }).join('') + '</div>';
 }
 
 function apri(i) { indice = i; mostra(); document.getElementById('lightbox').style.display = 'flex'; }
@@ -133,12 +233,58 @@ function mostra() {
     a.textContent = '⬇️ scarica';
     info.append(' • ', a);
   }
+  aggiornaBarra();
 }
+
+function aggiornaBarra() {
+  const bar = document.getElementById('reazioni-bar');
+  const m = media[indice];
+  if (!m || m.tipo === undefined) { bar.style.display = 'none'; return; }
+  const c = counts[m.filename] || { heart: 0, laugh: 0, fire: 0 };
+  const mie = mieR[m.filename] || [];
+  bar.innerHTML = REAZIONI.map(r => `
+    <button class="reaz ${mie.includes(r.k) ? 'mia' : ''}"
+            onclick="toggleReazione('${r.k}')">${r.e} <span>${c[r.k] || 0}</span></button>`).join('');
+  bar.style.display = 'flex';
+}
+
+async function toggleReazione(k) {
+  const m = media[indice];
+  if (!m) return;
+  try {
+    const r = await fetch('/api/reazione', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, filename: m.filename, reazione: k, client_id: CLIENT_ID })
+    });
+    if (!r.ok) return;
+    const d = await r.json();
+    counts[m.filename] = d.conteggi;
+    mieR[m.filename] = d.mie;
+    aggiornaBarra();
+    aggiornaBadge();
+    aggiornaPodio();
+  } catch (e) {}
+}
+
 function naviga(d) {
   if (!media.length) return;
   indice = (indice + d + media.length) % media.length;
   mostra();
 }
+
+// 📤 condivisione: nativa su telefono, WhatsApp Web su PC
+async function condividi() {
+  const url = location.href;
+  const nome = document.getElementById('nome-evento').textContent || 'Evento';
+  const testo = `${nome} — guarda le foto e i video dell'evento: ${url}`;
+  if (navigator.share) {
+    try { await navigator.share({ title: nome, text: testo, url }); return; }
+    catch (e) { if (e && e.name === 'AbortError') return; }
+  }
+  window.open('https://wa.me/?text=' + encodeURIComponent(testo), '_blank');
+}
+
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') chiudi();
   if (e.key === 'ArrowLeft') naviga(-1);

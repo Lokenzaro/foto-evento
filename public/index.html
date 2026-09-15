@@ -95,6 +95,11 @@
   .link-galleria { display: block; text-align: center; margin-top: 1.4rem; font-weight: 600;
     background: linear-gradient(90deg, #7dd3fc, #a78bfa);
     -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .condividi { display: block; width: 100%; margin-top: .7rem; padding: .7rem;
+    background: transparent; border: 1px solid rgba(125,211,252,.45); color: #7dd3fc;
+    border-radius: 12px; font-size: .95rem; font-weight: 600; cursor: pointer;
+    font-family: inherit; touch-action: manipulation; }
+  .condividi:active { transform: scale(.98); }
   .tag-versione { text-align: center; margin-top: 1.6rem; font-size: .7rem; color: #475569; }
 </style>
 </head>
@@ -145,7 +150,8 @@
   </div>
 
   <a class="link-galleria" id="link-galleria" href="#">🖼️ Vedi la galleria dell'evento →</a>
-  <p class="tag-versione">pagina invitato · v6.5</p>
+  <button class="condividi" onclick="condividi()">📤 Condividi la galleria</button>
+  <p class="tag-versione">pagina invitato · v6.5.4</p>
 </div>
 
 <script>
@@ -156,6 +162,7 @@ const LIVELLI = {
   massima:   { max: 4000, q: .92 }
 };
 let qualitaCorrente = 'standard';
+let nomeEvento = 'Evento';
 const coda = [];
 let invioInCorso = false, inviateOk = 0;
 
@@ -170,6 +177,7 @@ fetch('/api/evento/' + token)
   .then(r => { if (!r.ok) throw new Error(); return r.json(); })
   .then(d => {
     document.getElementById('nome-evento').textContent = d.nome;
+    nomeEvento = d.nome;
     if (LIVELLI[d.qualita]) qualitaCorrente = d.qualita;
     if (d.sfondo) {
       document.body.classList.add('con-sfondo');
@@ -177,7 +185,23 @@ fetch('/api/evento/' + token)
         `linear-gradient(rgba(11,16,32,.55), rgba(11,16,32,.78)), url('${d.sfondo}')`;
     }
   })
-  .catch(() => { document.getElementById('nome-evento').textContent = 'Benvenuto!'; });
+  .catch(() => {
+    document.getElementById('nome-evento').textContent = 'Benvenuto!';
+    nomeEvento = 'Benvenuto!';
+  });
+
+// ---------- 📤 CONDIVISIONE GALLERIA ----------
+// Su telefono: pannello di condivisione nativo (WhatsApp, Telegram…).
+// Su PC: apre WhatsApp Web con messaggio precompilato.
+async function condividi() {
+  const url = location.origin + '/galleria/' + token;
+  const testo = `${nomeEvento} — guarda le foto e i video dell'evento: ${url}`;
+  if (navigator.share) {
+    try { await navigator.share({ title: nomeEvento, text: testo, url }); return; }
+    catch (e) { if (e && e.name === 'AbortError') return; }
+  }
+  window.open('https://wa.me/?text=' + encodeURIComponent(testo), '_blank');
+}
 
 // ---------- MODALITÀ FOTO / VIDEO ----------
 let modalita = 'foto';

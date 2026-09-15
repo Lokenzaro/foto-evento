@@ -1,10 +1,11 @@
 // ============================================================
-//  SERVER - App foto/video evento con QR code — v6.5.3
+//  SERVER - App foto/video evento con QR code — v6.5.4
 //  MEGA: /FOTO-EVENTI/<Evento [TOKEN]>/
-//  - v6.5.1: endpoint /admin/clear-render-cache (redeploy)
+//  - v6.5.1: redeploy con pulizia cache (API Render)
 //  🔒 v6.5.2: rate limiting, cookie protetti, whitelist upload
-//  🧹 v6.5.3: riconciliazione backup (avvio + on-demand):
-//     confronta DB ↔ MEGA e ri-copia i media mancanti
+//  🧹 v6.5.3: riconciliazione backup (avvio + on-demand)
+//  ❤️ v6.5.4: reazioni (heart/laugh/fire) con toggle per client,
+//     incluse in snapshot/ripristino, cascata su eliminazione
 // ============================================================
 
 const express = require('express');
@@ -19,7 +20,7 @@ const os = require('os');
 const { execFile } = require('child_process');
 const QRCode = require('qrcode');
 
-const VERSIONE = '6.5.3';
+const VERSIONE = '6.5.4';
 
 function rilevaIPLocale() {
   const interfacce = os.networkInterfaces();
@@ -75,11 +76,23 @@ db.exec(`
     invitato TEXT,
     caricata_il TEXT DEFAULT (datetime('now'))
   );
+  CREATE TABLE IF NOT EXISTS reazioni (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    evento_token TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    client_id TEXT NOT NULL,
+    reazione TEXT NOT NULL,
+    creato_il TEXT DEFAULT (datetime('now'))
+  );
 `);
 try { db.exec("ALTER TABLE eventi ADD COLUMN qualita TEXT DEFAULT 'standard'"); } catch (e) {}
 try { db.exec("ALTER TABLE eventi ADD COLUMN sfondo TEXT"); } catch (e) {}
 try { db.exec("ALTER TABLE eventi ADD COLUMN archiviato INTEGER DEFAULT 0"); } catch (e) {}
 try { db.exec("ALTER TABLE foto ADD COLUMN tipo TEXT DEFAULT 'foto'"); } catch (e) {}
+// ❤️ una sola reazione per tipo per telefono (toggle)
+try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_reazione_unica ON reazioni (evento_token, filename, client_id, reazione)"); } catch (e) {}
+
+const REAZIONI_VALIDE = ['heart', 'laugh', 'fire'];
 
 fs.mkdirSync(CARTELLA_FOTO, { recursive: true });
 
@@ -112,7 +125,7 @@ const caricamento = multer({
 });
 
 // ---------- STATO OPERAZIONI LUNGHE ----------
-const ripristino = { in_corso: false, messaggio: 'Mai avviato', eventi: 0, media: 0, errori: 0, totale: 0 };
+const ripristino = { in_corso: false, messaggio: 'Mai avviato', eventi: 0, media: 0, reazioni: 0, errori: 0, totale: 0 };
 
 // ---------- CONNESSIONE MEGA ----------
 let megaStorage = null;
@@ -132,7 +145,7 @@ if (process.env.MEGA_EMAIL && process.env.MEGA_PASSWORD) {
         aggiornaIndice(() => {
           garantisciRadice(() => garantisciSistema(() => {
             programmaSnapshot(3000);
-            riconciliazioneAvvio();                       // 🧹 v6.5.3
+            riconciliazioneAvvio();
           }));
         });
       }
@@ -438,7 +451,7 @@ function preparaVideo(job, done) {
   }
 }
 
-// ---------- SNAPSHOT SU MEGA ----------
+// ---------- SNAPSHOT SU MEGA (include le reazioni) ----------
 let snapshotTimer = null;
 let snapshotInAttesa = false;
 function programmaSnapshot(ritardo = 15000) {
@@ -468,11 +481,12 @@ function eseguiSnapshot() {
   try {
     const eventi = db.prepare('SELECT * FROM eventi').all();
     const foto = db.prepare('SELECT * FROM foto').all();
+    const reazioni = db.prepare('SELECT * FROM reazioni').all();
     const ts = Date.now();
 
     garantisciSistema((sistema) => {
       if (!sistema) return;
-      const glob = JSON.stringify({ esportato_il: new Date(ts).toISOString(), eventi, foto });
+      const glob = JSON.stringify({ esportato_il: new Date(ts).toISOString(), eventi, foto, reazioni });
       caricaInCartella(sistema, `db-snapshot-${ts}.json`, Buffer.from(glob), (err) => {
         if (err) console.error('☁️ Snapshot DB non salvato:', err.message);
         else {
@@ -486,7 +500,9 @@ function eseguiSnapshot() {
       garantisciCartellaEvento(ev, (cartella) => {
         if (!cartella) return;
         const proprie = foto.filter(f => f.evento_token === ev.token);
-        const j = JSON.stringify({ esportato_il: new Date(ts).toISOString(), eventi: [ev], foto: proprie });
+        const reazProprie = reazioni.filter(r => r.evento_token === ev.token);
+        const j = JSON.stringify({ esportato_il: new Date(ts).toISOString(),
+          eventi: [ev], foto: proprie, reazioni: reazProprie });
         caricaInCartella(cartella, `dati-${ts}.json`, Buffer.from(j), (err) => {
           if (!err) pulisciVecchiFile(cartella, 'dati-', 2);
         });
@@ -496,15 +512,10 @@ function eseguiSnapshot() {
 }
 
 // ============================================================
-//  🧹 v6.5.3 RICONCILIAZIONE BACKUP
-//  Confronta i media del database con i file realmente presenti
-//  nella cartella MEGA dell'evento e ri-copia i mancanti.
-//  Non riconverte nulla: il file sul disco è già quello finale.
+//  🧹 RICONCILIAZIONE BACKUP
 // ============================================================
 const riconciliazione = { in_corso: false, messaggio: 'Mai avviata', controllati: 0, ricopiati: 0, errori: 0 };
 
-// il file locale è "non ammesso" in MEGA se: non esiste sul disco,
-// è un'anteprima video, o un JSON dati
 function mediaBackupabile(riga) {
   if (EST_VIDEO_IMG.test(riga.filename)) return false;
   if (/^dati-\d+\.json$/.test(riga.filename)) return false;
@@ -522,16 +533,12 @@ function eseguiRiconciliazione(cb) {
   riconciliazione.messaggio = 'Riconciliazione: lettura indice MEGA…';
 
   aggiornaIndice(() => {
-    // 1) costruisce: per ogni token → elenco dei file MEGA effettivi
     const filesMegaPerToken = {};
     for (const c of nodiMega()) {
       const m = c.name && c.name.match(/\[([A-Za-z0-9_-]{8})\]$/);
       if (!m) continue;
-      filesMegaPerToken[m[1]] = new Set(
-        figliDi(c).map(f => f.name).filter(Boolean)
-      );
+      filesMegaPerToken[m[1]] = new Set(figliDi(c).map(f => f.name).filter(Boolean));
     }
-    // vecchi backup "piatti" TOKEN_file.ext
     const piatti = {};
     for (const f of nodiMega()) {
       const m = f.name && f.name.match(/^([A-Za-z0-9_-]{8})_(.+)$/);
@@ -541,7 +548,6 @@ function eseguiRiconciliazione(cb) {
       }
     }
 
-    // 2) elenco media del database da controllare
     const media = db.prepare(`
       SELECT f.filename, f.evento_token, e.nome
       FROM foto f JOIN eventi e ON e.token = f.evento_token
@@ -569,7 +575,6 @@ function eseguiRiconciliazione(cb) {
       return;
     }
 
-    // 3) ri-copia i mancanti, uno alla volta (seriale, non blocca l'app)
     let i = 0;
     const prossima = () => {
       if (i >= mancanti.length) {
@@ -585,13 +590,11 @@ function eseguiRiconciliazione(cb) {
       const m = mancanti[i++];
       riconciliazione.messaggio =
         `Riconciliazione: copio ${i}/${mancanti.length} (media mancanti su MEGA)…`;
-      // evita doppioni se nel frattempo la coda normale l'ha copiato
       garantisciCartellaEvento(m, (cartella) => {
         if (!cartella) { riconciliazione.errori++; return prossima(); }
         const ancora = figliDi(cartella).some(f => f.name === m.filename);
         if (ancora) return prossima();
         backupMega(path.join(CARTELLA_FOTO, m.filename), m.filename, m);
-        // margine per non sovraccaricare l'upload MEGA
         setTimeout(prossima, 1500);
       });
     };
@@ -599,8 +602,6 @@ function eseguiRiconciliazione(cb) {
   });
 }
 
-// riconciliazione automatica all'avvio (dopo la connessione MEGA),
-// solo se ci sono media nel database (evita lavoro inutile a deploy puliti)
 function riconciliazioneAvvio() {
   try {
     const n = db.prepare('SELECT COUNT(*) AS n FROM foto').get().n;
@@ -613,6 +614,7 @@ const app = express();
 
 app.set('trust proxy', 1);
 
+// 🔒 limiti di frequenza
 const limiterLogin = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 10,
@@ -627,8 +629,16 @@ const limiterUpload = rateLimit({
   legacyHeaders: false,
   message: { errore: 'Troppi invii: attendi prima di riprovare.' }
 });
+const limiterReazioni = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { errore: 'Troppe reazioni: rallenta un attimo.' }
+});
 app.use('/admin/login', limiterLogin);
 app.use('/upload', limiterUpload);
+app.use('/api/reazione', limiterReazioni);
 
 app.use(session({
   secret: process.env.SESSION_SECRET || 'cambia-questa-frase-segreta!',
@@ -779,6 +789,7 @@ app.delete('/api/eventi/:id', soloAdmin, (req, res) => {
     eliminaPiattiMega(ev.token + '_');
     eliminaPiattiMega('sfondo-' + ev.token);
   }
+  db.prepare('DELETE FROM reazioni WHERE evento_token = ?').run(ev.token); // ❤️ cascata
   db.prepare('DELETE FROM foto WHERE evento_token = ?').run(ev.token);
   db.prepare('DELETE FROM eventi WHERE id = ?').run(req.params.id);
   programmaSnapshot();
@@ -799,6 +810,67 @@ app.get('/api/foto/:token', (req, res) => {
     'SELECT filename, tipo, invitato, caricata_il FROM foto WHERE evento_token = ? ORDER BY id DESC'
   ).all(req.params.token);
   res.json(media.map(m => ({ ...m, url: '/foto/' + m.filename, tipo: m.tipo || 'foto' })));
+});
+
+// ---------- ❤️ REAZIONI ----------
+function conteggiDi(token, filename) {
+  const righe = db.prepare(
+    'SELECT reazione, COUNT(*) AS n FROM reazioni WHERE evento_token = ? AND filename = ? GROUP BY reazione'
+  ).all(token, filename);
+  const c = { heart: 0, laugh: 0, fire: 0 };
+  for (const r of righe) if (c[r.reazione] !== undefined) c[r.reazione] = r.n;
+  return c;
+}
+
+// toggle: tocco = aggiungi, ritocco = togli (una per tipo per telefono)
+app.post('/api/reazione', (req, res) => {
+  const { token, filename, reazione, client_id } = req.body || {};
+  if (!token || !/^[A-Za-z0-9_-]{8}$/.test(token)) return res.status(400).json({ errore: 'Token non valido' });
+  if (!REAZIONI_VALIDE.includes(reazione)) return res.status(400).json({ errore: 'Reazione non valida' });
+  if (!client_id || !/^[A-Za-z0-9_-]{8,64}$/.test(client_id)) return res.status(400).json({ errore: 'Client non valido' });
+  const foto = db.prepare('SELECT filename FROM foto WHERE evento_token = ? AND filename = ?')
+    .get(token, filename);
+  if (!foto) return res.status(404).json({ errore: 'Media non trovato' });
+
+  const esiste = db.prepare(
+    'SELECT id FROM reazioni WHERE evento_token = ? AND filename = ? AND client_id = ? AND reazione = ?'
+  ).get(token, filename, client_id, reazione);
+  if (esiste) db.prepare('DELETE FROM reazioni WHERE id = ?').run(esiste.id);
+  else db.prepare(
+    'INSERT INTO reazioni (evento_token, filename, client_id, reazione) VALUES (?, ?, ?, ?)'
+  ).run(token, filename, client_id, reazione);
+
+  const mie = db.prepare(
+    'SELECT reazione FROM reazioni WHERE evento_token = ? AND filename = ? AND client_id = ?'
+  ).all(token, filename, client_id).map(r => r.reazione);
+
+  programmaSnapshot();
+  res.json({ ok: true, mie, conteggi: conteggiDi(token, filename) });
+});
+
+// conteggi di tutto l'evento + le reazioni di chi chiede (per l'evidenziazione)
+app.get('/api/reazioni/:token', (req, res) => {
+  const token = req.params.token;
+  if (!/^[A-Za-z0-9_-]{8}$/.test(token)) return res.status(400).json({ errore: 'Token non valido' });
+  const righe = db.prepare(
+    'SELECT filename, reazione, COUNT(*) AS n FROM reazioni WHERE evento_token = ? GROUP BY filename, reazione'
+  ).all(token);
+  const conteggi = {};
+  for (const r of righe) {
+    if (!conteggi[r.filename]) conteggi[r.filename] = { heart: 0, laugh: 0, fire: 0 };
+    if (conteggi[r.filename][r.reazione] !== undefined) conteggi[r.filename][r.reazione] = r.n;
+  }
+  const mie = {};
+  const client = String(req.query.client || '');
+  if (/^[A-Za-z0-9_-]{8,64}$/.test(client)) {
+    for (const r of db.prepare(
+      'SELECT filename, reazione FROM reazioni WHERE evento_token = ? AND client_id = ?'
+    ).all(token, client)) {
+      if (!mie[r.filename]) mie[r.filename] = [];
+      mie[r.filename].push(r.reazione);
+    }
+  }
+  res.json({ conteggi, mie });
 });
 
 app.use('/foto', express.static(CARTELLA_FOTO));
@@ -838,7 +910,98 @@ app.post('/upload', caricamento.single('media'), (req, res) => {
   res.json({ ok: true, tipo });
 });
 
-// 🧹 v6.5.3: verifica/riconciliazione backup on-demand
+app.use((err, req, res, next) => {
+  if (err) {
+    console.error('⚠️ Richiesta rifiutata:', err.message);
+    return res.status(400).json({ errore: err.message || 'Richiesta non valida' });
+  }
+  next();
+});
+
+// ---------- ELENCO BACKUP ----------
+app.get('/admin/eventi-mega', soloAdmin, (req, res) => {
+  if (!megaStorage || !megaPronto) return res.status(400).json({ errore: 'MEGA non configurato' });
+  aggiornaIndice(async () => {
+    try {
+      const lista = {};
+      const conContenuto = new Set();
+      for (const c of nodiMega()) {
+        const m = c.name && c.name.match(/\[([A-Za-z0-9_-]{8})\]$/);
+        if (m && figliDi(c).length > 0) conContenuto.add(m[1]);
+      }
+      for (const f of nodiMega()) {
+        const m = f.name && f.name.match(new RegExp(`^([A-Za-z0-9_-]{8})_.+\\.(${EST_MEDIA.join('|')})$`, 'i'));
+        if (m) conContenuto.add(m[1]);
+      }
+      if (!conContenuto.size) return res.json([]);
+
+      const meta = {};
+      const snaps = nodiMega().filter(f => f.name && /^db-snapshot-\d+\.json$/.test(f.name))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      await new Promise(done => {
+        if (!snaps.length) return done();
+        snaps[snaps.length - 1].downloadBuffer((err, buf) => {
+          if (!err) {
+            try {
+              const d = JSON.parse(buf.toString('utf8'));
+              for (const ev of (d.eventi || [])) {
+                if (conContenuto.has(ev.token)) meta[ev.token] = ev.nome;
+              }
+            } catch (e) {}
+          }
+          done();
+        });
+      });
+
+      for (const c of nodiMega()) {
+        const m = c.name && c.name.match(/\[([A-Za-z0-9_-]{8})\]$/);
+        if (!m || !conContenuto.has(m[1])) continue;
+        const token = m[1];
+        if (!lista[token]) {
+          lista[token] = {
+            token,
+            nome: c.name.replace(/\s*\[[^\]]+\]$/, '') || meta[token] || 'Evento (backup)',
+            num_media: 0
+          };
+        }
+        lista[token].num_media = figliDi(c).filter(f => f.name &&
+          !f.name.startsWith('sfondo') && !/^dati-\d+\.json$/.test(f.name) &&
+          !EST_VIDEO_IMG.test(f.name)).length;
+      }
+      for (const f of nodiMega()) {
+        const m = f.name && f.name.match(new RegExp(`^([A-Za-z0-9_-]{8})_.+\\.(${EST_MEDIA.join('|')})$`, 'i'));
+        if (!m) continue;
+        const token = m[1];
+        if (!lista[token]) lista[token] = { token, nome: meta[token] || 'Evento (backup)', num_media: 0 };
+        lista[token].num_media++;
+      }
+
+      res.json(Object.values(lista).map(e => ({
+        ...e,
+        gia_presente: !!db.prepare('SELECT id FROM eventi WHERE token = ?').get(e.token)
+      })));
+    } catch (e) {
+      if (!res.headersSent) res.status(500).json({ errore: e.message });
+    }
+  });
+});
+
+// ---------- RIPRISTINO SELETTIVO (include le reazioni) ----------
+app.post('/admin/ripristino', soloAdmin, (req, res) => {
+  if (!megaStorage || !megaPronto) {
+    return res.status(400).json({ errore: 'MEGA non configurato: servono MEGA_EMAIL e MEGA_PASSWORD' });
+  }
+  const tokens = Array.isArray(req.body.tokens)
+    ? req.body.tokens.filter(t => /^[A-Za-z0-9_-]{8}$/.test(t)) : [];
+  if (!tokens.length) return res.status(400).json({ errore: 'Seleziona almeno un evento da ripristinare' });
+  if (ripristino.in_corso) return res.json({ ok: true });
+  ripristino.in_corso = true;
+  ripristino.eventi = 0; ripristino.media = 0; ripristino.reazioni = 0; ripristino.errori = 0; ripristino.totale = 0;
+  ripristino.messaggio = 'Avvio: lettura dei file da MEGA…';
+  eseguiRipristino(tokens);
+  res.json({ ok: true });
+});
+
 app.post('/admin/verifica-backup', soloAdmin, (req, res) => {
   if (!megaStorage || !megaPronto) {
     return res.status(400).json({ errore: 'MEGA non configurato o non connesso' });
@@ -850,29 +1013,6 @@ app.post('/admin/verifica-backup', soloAdmin, (req, res) => {
     if (esito.gia_in_corso) return res.json({ ok: true, gia_in_corso: true });
     res.json({ ok: true });
   });
-});
-
-app.get('/admin/stato-ripristino', soloAdmin, (req, res) => {
-  const r = { ...ripristino };
-  if (r.in_corso && convTotali > 0) r.messaggio = `🎬 Conversione video ${convFatte}/${convTotali}…`;
-  // 🧹 il riquadro operazioni mostra anche l'avanzamento riconciliazione
-  if (riconciliazione.in_corso) r.messaggio = riconciliazione.messaggio;
-  res.json(r);
-});
-
-app.post('/admin/ripristino', soloAdmin, (req, res) => {
-  if (!megaStorage || !megaPronto) {
-    return res.status(400).json({ errore: 'MEGA non configurato: servono MEGA_EMAIL e MEGA_PASSWORD' });
-  }
-  const tokens = Array.isArray(req.body.tokens)
-    ? req.body.tokens.filter(t => /^[A-Za-z0-9_-]{8}$/.test(t)) : [];
-  if (!tokens.length) return res.status(400).json({ errore: 'Seleziona almeno un evento da ripristinare' });
-  if (ripristino.in_corso) return res.json({ ok: true });
-  ripristino.in_corso = true;
-  ripristino.eventi = 0; ripristino.media = 0; ripristino.errori = 0; ripristino.totale = 0;
-  ripristino.messaggio = 'Avvio: lettura dei file da MEGA…';
-  eseguiRipristino(tokens);
-  res.json({ ok: true });
 });
 
 app.post('/admin/converti-video', soloAdmin, (req, res) => {
@@ -888,11 +1028,18 @@ app.post('/admin/converti-video', soloAdmin, (req, res) => {
   });
   if (!candidati.length) return res.json({ ok: true, nessuno: true });
   ripristino.in_corso = true;
-  ripristino.eventi = 0; ripristino.media = 0; ripristino.errori = 0; ripristino.totale = candidati.length;
+  ripristino.eventi = 0; ripristino.media = 0; ripristino.reazioni = 0; ripristino.errori = 0; ripristino.totale = candidati.length;
   convTotali = candidati.length; convFatte = 0;
   ripristino.messaggio = `🎬 Conversione video 0/${candidati.length}…`;
   for (const c of candidati) accodaConversioneVideo({ token: c.evento_token, nome: c.nome }, c.filename);
   res.json({ ok: true });
+});
+
+app.get('/admin/stato-ripristino', soloAdmin, (req, res) => {
+  const r = { ...ripristino };
+  if (r.in_corso && convTotali > 0) r.messaggio = `🎬 Conversione video ${convFatte}/${convTotali}…`;
+  if (riconciliazione.in_corso) r.messaggio = riconciliazione.messaggio;
+  res.json(r);
 });
 
 function applicaMeta(dati, tokens) {
@@ -900,6 +1047,8 @@ function applicaMeta(dati, tokens) {
     (token, nome, data_evento, qualita, attivo, creato_il, sfondo, archiviato) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
   const insMedia = db.prepare(`INSERT INTO foto
     (evento_token, filename, invitato, caricata_il, tipo) VALUES (?, ?, ?, ?, ?)`);
+  const insReazione = db.prepare(`INSERT OR IGNORE INTO reazioni
+    (evento_token, filename, client_id, reazione, creato_il) VALUES (?, ?, ?, ?, ?)`);
   db.transaction(() => {
     for (const ev of (dati.eventi || [])) {
       if (!tokens.includes(ev.token)) continue;
@@ -916,6 +1065,13 @@ function applicaMeta(dati, tokens) {
       insMedia.run(m.evento_token, m.filename, m.invitato || 'Invitato',
         m.caricata_il || null, m.tipo || 'foto');
       ripristino.media++;
+    }
+    for (const rz of (dati.reazioni || [])) {
+      if (!tokens.includes(rz.evento_token)) continue;
+      if (!REAZIONI_VALIDE.includes(rz.reazione)) continue;
+      const info = insReazione.run(rz.evento_token, rz.filename,
+        String(rz.client_id || 'sconosciuto').slice(0, 64), rz.reazione, rz.creato_il || null);
+      if (info.changes) ripristino.reazioni++;
     }
   })();
 }
@@ -954,7 +1110,7 @@ function finalizzaRipristino() {
   ripristino.in_corso = false;
   ripristino.messaggio =
     `✅ Completato: ${ripristino.eventi} eventi recuperati, ` +
-    `${ripristino.media} foto/video ripristinati, ${ripristino.errori} errori.`;
+    `${ripristino.media} foto/video ripristinati, ${ripristino.reazioni} reazioni, ${ripristino.errori} errori.`;
   programmaSnapshot(3000);
 }
 
