@@ -1,11 +1,10 @@
 // ============================================================
-//  SERVER - App foto/video evento con QR code — v6.5.2
+//  SERVER - App foto/video evento con QR code — v6.5.3
 //  MEGA: /FOTO-EVENTI/<Evento [TOKEN]>/
 //  - v6.5.1: endpoint /admin/clear-render-cache (redeploy)
-//  🔒 PATCH SICUREZZA v6.5.2:
-//     A) rate limiting su login e upload (anti brute-force/flood)
-//     B) cookie di sessione rafforzati (httpOnly, sameSite, secure)
-//     C) whitelist dei tipi di file caricati (anti stored-XSS)
+//  🔒 v6.5.2: rate limiting, cookie protetti, whitelist upload
+//  🧹 v6.5.3: riconciliazione backup (avvio + on-demand):
+//     confronta DB ↔ MEGA e ri-copia i media mancanti
 // ============================================================
 
 const express = require('express');
@@ -20,7 +19,7 @@ const os = require('os');
 const { execFile } = require('child_process');
 const QRCode = require('qrcode');
 
-const VERSIONE = '6.5.2';
+const VERSIONE = '6.5.3';
 
 function rilevaIPLocale() {
   const interfacce = os.networkInterfaces();
@@ -35,7 +34,6 @@ function rilevaIPLocale() {
 const URL_BASE = process.env.URL_BASE || `http://${rilevaIPLocale()}:3000`;
 const PASSWORD_ADMIN = process.env.ADMIN_PASSWORD || 'admin123';
 
-// 🔒 PATCH (bonus): avviso se si usa la password predefinita in produzione
 if (PASSWORD_ADMIN === 'admin123' &&
     (process.env.RENDER_EXTERNAL_URL || process.env.NODE_ENV === 'production')) {
   console.warn('⚠️ ATTENZIONE: stai usando la password admin predefinita! ' +
@@ -85,9 +83,7 @@ try { db.exec("ALTER TABLE foto ADD COLUMN tipo TEXT DEFAULT 'foto'"); } catch (
 
 fs.mkdirSync(CARTELLA_FOTO, { recursive: true });
 
-// 🔒 PATCH C: whitelist dei tipi ammessi. Accetta i MIME multimediali
-// noti oppure file con estensione media (alcuni telefoni inviano
-// mimetype generici). Blocca HTML/JS/eseguibili → niente stored-XSS.
+// 🔒 whitelist tipi ammessi
 const MIME_AMMESSI = [
   'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif',
   'video/webm', 'video/mp4', 'video/quicktime', 'video/x-matroska', 'video/3gpp'
@@ -134,7 +130,10 @@ if (process.env.MEGA_EMAIL && process.env.MEGA_PASSWORD) {
         megaPronto = true;
         console.log('☁️ Backup MEGA collegato (struttura: /FOTO-EVENTI)');
         aggiornaIndice(() => {
-          garantisciRadice(() => garantisciSistema(() => programmaSnapshot(3000)));
+          garantisciRadice(() => garantisciSistema(() => {
+            programmaSnapshot(3000);
+            riconciliazioneAvvio();                       // 🧹 v6.5.3
+          }));
         });
       }
     });
@@ -496,25 +495,134 @@ function eseguiSnapshot() {
   } catch (e) { console.error('☁️ Snapshot errore:', e.message); }
 }
 
+// ============================================================
+//  🧹 v6.5.3 RICONCILIAZIONE BACKUP
+//  Confronta i media del database con i file realmente presenti
+//  nella cartella MEGA dell'evento e ri-copia i mancanti.
+//  Non riconverte nulla: il file sul disco è già quello finale.
+// ============================================================
+const riconciliazione = { in_corso: false, messaggio: 'Mai avviata', controllati: 0, ricopiati: 0, errori: 0 };
+
+// il file locale è "non ammesso" in MEGA se: non esiste sul disco,
+// è un'anteprima video, o un JSON dati
+function mediaBackupabile(riga) {
+  if (EST_VIDEO_IMG.test(riga.filename)) return false;
+  if (/^dati-\d+\.json$/.test(riga.filename)) return false;
+  return fs.existsSync(path.join(CARTELLA_FOTO, riga.filename));
+}
+
+function eseguiRiconciliazione(cb) {
+  if (!megaStorage || !megaPronto) {
+    if (cb) cb({ ok: false, errore: 'MEGA non configurato o non connesso' });
+    return;
+  }
+  if (riconciliazione.in_corso) { if (cb) cb({ ok: true, gia_in_corso: true }); return; }
+  riconciliazione.in_corso = true;
+  riconciliazione.controllati = 0; riconciliazione.ricopiati = 0; riconciliazione.errori = 0;
+  riconciliazione.messaggio = 'Riconciliazione: lettura indice MEGA…';
+
+  aggiornaIndice(() => {
+    // 1) costruisce: per ogni token → elenco dei file MEGA effettivi
+    const filesMegaPerToken = {};
+    for (const c of nodiMega()) {
+      const m = c.name && c.name.match(/\[([A-Za-z0-9_-]{8})\]$/);
+      if (!m) continue;
+      filesMegaPerToken[m[1]] = new Set(
+        figliDi(c).map(f => f.name).filter(Boolean)
+      );
+    }
+    // vecchi backup "piatti" TOKEN_file.ext
+    const piatti = {};
+    for (const f of nodiMega()) {
+      const m = f.name && f.name.match(/^([A-Za-z0-9_-]{8})_(.+)$/);
+      if (m) {
+        if (!piatti[m[1]]) piatti[m[1]] = new Set();
+        piatti[m[1]].add(m[2]);
+      }
+    }
+
+    // 2) elenco media del database da controllare
+    const media = db.prepare(`
+      SELECT f.filename, f.evento_token, e.nome
+      FROM foto f JOIN eventi e ON e.token = f.evento_token
+      ORDER BY f.id
+    `).all().filter(mediaBackupabile);
+
+    riconciliazione.controllati = media.length;
+    const mancanti = [];
+    for (const m of media) {
+      const inCartella = filesMegaPerToken[m.evento_token];
+      const neiPiatti = piatti[m.evento_token];
+      const presente = (inCartella && inCartella.has(m.filename)) ||
+                       (neiPiatti && neiPiatti.has(m.filename));
+      if (!presente) mancanti.push(m);
+    }
+    riconciliazione.messaggio =
+      `Riconciliazione: ${mancanti.length} media mancanti su ${media.length}…`;
+
+    if (!mancanti.length) {
+      riconciliazione.in_corso = false;
+      riconciliazione.messaggio =
+        `✅ Riconciliazione completata: ${media.length} media verificati, nessuno mancante.`;
+      console.log(`🧹 Riconciliazione: ${media.length} media verificati su MEGA, nessuno mancante`);
+      if (cb) cb({ ok: true });
+      return;
+    }
+
+    // 3) ri-copia i mancanti, uno alla volta (seriale, non blocca l'app)
+    let i = 0;
+    const prossima = () => {
+      if (i >= mancanti.length) {
+        riconciliazione.in_corso = false;
+        riconciliazione.messaggio =
+          `✅ Riconciliazione completata: ${media.length} verificati, ` +
+          `${riconciliazione.ricopiati} ri-copiati su MEGA, ${riconciliazione.errori} errori.`;
+        console.log(`🧹 Riconciliazione: ${riconciliazione.ricopiati} media ri-copiati su MEGA`);
+        programmaSnapshot(3000);
+        if (cb) cb({ ok: true });
+        return;
+      }
+      const m = mancanti[i++];
+      riconciliazione.messaggio =
+        `Riconciliazione: copio ${i}/${mancanti.length} (media mancanti su MEGA)…`;
+      // evita doppioni se nel frattempo la coda normale l'ha copiato
+      garantisciCartellaEvento(m, (cartella) => {
+        if (!cartella) { riconciliazione.errori++; return prossima(); }
+        const ancora = figliDi(cartella).some(f => f.name === m.filename);
+        if (ancora) return prossima();
+        backupMega(path.join(CARTELLA_FOTO, m.filename), m.filename, m);
+        // margine per non sovraccaricare l'upload MEGA
+        setTimeout(prossima, 1500);
+      });
+    };
+    prossima();
+  });
+}
+
+// riconciliazione automatica all'avvio (dopo la connessione MEGA),
+// solo se ci sono media nel database (evita lavoro inutile a deploy puliti)
+function riconciliazioneAvvio() {
+  try {
+    const n = db.prepare('SELECT COUNT(*) AS n FROM foto').get().n;
+    if (n > 0) eseguiRiconciliazione();
+  } catch (e) {}
+}
+
 // ---------- APP ----------
 const app = express();
 
-// 🔒 PATCH B: su Render il traffico passa da un proxy HTTPS: serve
-// per i cookie "secure" e per far funzionare correttamente il
-// rate limiting sugli IP reali dei visitatori
 app.set('trust proxy', 1);
 
-// 🔒 PATCH A: limiti di frequenza
 const limiterLogin = rateLimit({
-  windowMs: 15 * 60 * 1000,          // finestra di 15 minuti
-  limit: 10,                          // max 10 tentativi di login per IP
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
   standardHeaders: true,
   legacyHeaders: false,
   message: { errore: 'Troppi tentativi: riprova tra 15 minuti.' }
 });
 const limiterUpload = rateLimit({
-  windowMs: 60 * 60 * 1000,          // finestra di 1 ora
-  limit: 150,                         // max 150 upload per ora per IP
+  windowMs: 60 * 60 * 1000,
+  limit: 150,
   standardHeaders: true,
   legacyHeaders: false,
   message: { errore: 'Troppi invii: attendi prima di riprovare.' }
@@ -522,16 +630,15 @@ const limiterUpload = rateLimit({
 app.use('/admin/login', limiterLogin);
 app.use('/upload', limiterUpload);
 
-// 🔒 PATCH B: cookie di sessione rafforzati
 app.use(session({
   secret: process.env.SESSION_SECRET || 'cambia-questa-frase-segreta!',
   resave: false,
   saveUninitialized: false,
   cookie: {
-    httpOnly: true,     // il cookie non è leggibile da JavaScript
-    sameSite: 'strict', // protezione anti-CSRF
+    httpOnly: true,
+    sameSite: 'strict',
     secure: !!process.env.RENDER_EXTERNAL_URL || process.env.NODE_ENV === 'production'
-  }                     // in produzione solo via HTTPS (su Render automatico)
+  }
 }));
 
 app.use(express.json());
@@ -549,7 +656,6 @@ app.post('/admin/login', (req, res) => {
 });
 app.post('/admin/logout', (req, res) => req.session.destroy(() => res.json({ ok: true })));
 
-// Redeploy con pulizia cache (API Render)
 app.post('/admin/clear-render-cache', soloAdmin, async (req, res) => {
   const apiKey = process.env.RENDER_API_KEY;
   const serviceId = process.env.RENDER_SERVICE_ID;
@@ -732,85 +838,28 @@ app.post('/upload', caricamento.single('media'), (req, res) => {
   res.json({ ok: true, tipo });
 });
 
-// 🔒 PATCH A+C: risposta JSON pulita per errori di upload
-// (file non ammesso, troppo grande, limiti di frequenza superati)
-app.use((err, req, res, next) => {
-  if (err) {
-    console.error('⚠️ Richiesta rifiutata:', err.message);
-    return res.status(400).json({ errore: err.message || 'Richiesta non valida' });
+// 🧹 v6.5.3: verifica/riconciliazione backup on-demand
+app.post('/admin/verifica-backup', soloAdmin, (req, res) => {
+  if (!megaStorage || !megaPronto) {
+    return res.status(400).json({ errore: 'MEGA non configurato o non connesso' });
   }
-  next();
-});
-
-// ---------- ELENCO BACKUP: SOLO eventi con file reali su MEGA ----------
-app.get('/admin/eventi-mega', soloAdmin, (req, res) => {
-  if (!megaStorage || !megaPronto) return res.status(400).json({ errore: 'MEGA non configurato' });
-  aggiornaIndice(async () => {
-    try {
-      const lista = {};
-      const conContenuto = new Set();
-      for (const c of nodiMega()) {
-        const m = c.name && c.name.match(/\[([A-Za-z0-9_-]{8})\]$/);
-        if (m && figliDi(c).length > 0) conContenuto.add(m[1]);
-      }
-      for (const f of nodiMega()) {
-        const m = f.name && f.name.match(new RegExp(`^([A-Za-z0-9_-]{8})_.+\\.(${EST_MEDIA.join('|')})$`, 'i'));
-        if (m) conContenuto.add(m[1]);
-      }
-      if (!conContenuto.size) return res.json([]);
-
-      const meta = {};
-      const snaps = nodiMega().filter(f => f.name && /^db-snapshot-\d+\.json$/.test(f.name))
-        .sort((a, b) => a.name.localeCompare(b.name));
-      await new Promise(done => {
-        if (!snaps.length) return done();
-        snaps[snaps.length - 1].downloadBuffer((err, buf) => {
-          if (!err) {
-            try {
-              const d = JSON.parse(buf.toString('utf8'));
-              for (const ev of (d.eventi || [])) {
-                if (conContenuto.has(ev.token)) meta[ev.token] = ev.nome;
-              }
-            } catch (e) {}
-          }
-          done();
-        });
-      });
-
-      for (const c of nodiMega()) {
-        const m = c.name && c.name.match(/\[([A-Za-z0-9_-]{8})\]$/);
-        if (!m || !conContenuto.has(m[1])) continue;
-        const token = m[1];
-        if (!lista[token]) {
-          lista[token] = {
-            token,
-            nome: c.name.replace(/\s*\[[^\]]+\]$/, '') || meta[token] || 'Evento (backup)',
-            num_media: 0
-          };
-        }
-        lista[token].num_media = figliDi(c).filter(f => f.name &&
-          !f.name.startsWith('sfondo') && !/^dati-\d+\.json$/.test(f.name) &&
-          !EST_VIDEO_IMG.test(f.name)).length;
-      }
-      for (const f of nodiMega()) {
-        const m = f.name && f.name.match(new RegExp(`^([A-Za-z0-9_-]{8})_.+\\.(${EST_MEDIA.join('|')})$`, 'i'));
-        if (!m) continue;
-        const token = m[1];
-        if (!lista[token]) lista[token] = { token, nome: meta[token] || 'Evento (backup)', num_media: 0 };
-        lista[token].num_media++;
-      }
-
-      res.json(Object.values(lista).map(e => ({
-        ...e,
-        gia_presente: !!db.prepare('SELECT id FROM eventi WHERE token = ?').get(e.token)
-      })));
-    } catch (e) {
-      if (!res.headersSent) res.status(500).json({ errore: e.message });
+  eseguiRiconciliazione((esito) => {
+    if (!esito || !esito.ok) {
+      return res.status(400).json({ errore: (esito && esito.errore) || 'Errore avvio riconciliazione' });
     }
+    if (esito.gia_in_corso) return res.json({ ok: true, gia_in_corso: true });
+    res.json({ ok: true });
   });
 });
 
-// ---------- RIPRISTINO SELETTIVO ----------
+app.get('/admin/stato-ripristino', soloAdmin, (req, res) => {
+  const r = { ...ripristino };
+  if (r.in_corso && convTotali > 0) r.messaggio = `🎬 Conversione video ${convFatte}/${convTotali}…`;
+  // 🧹 il riquadro operazioni mostra anche l'avanzamento riconciliazione
+  if (riconciliazione.in_corso) r.messaggio = riconciliazione.messaggio;
+  res.json(r);
+});
+
 app.post('/admin/ripristino', soloAdmin, (req, res) => {
   if (!megaStorage || !megaPronto) {
     return res.status(400).json({ errore: 'MEGA non configurato: servono MEGA_EMAIL e MEGA_PASSWORD' });
@@ -844,12 +893,6 @@ app.post('/admin/converti-video', soloAdmin, (req, res) => {
   ripristino.messaggio = `🎬 Conversione video 0/${candidati.length}…`;
   for (const c of candidati) accodaConversioneVideo({ token: c.evento_token, nome: c.nome }, c.filename);
   res.json({ ok: true });
-});
-
-app.get('/admin/stato-ripristino', soloAdmin, (req, res) => {
-  const r = { ...ripristino };
-  if (r.in_corso && convTotali > 0) r.messaggio = `🎬 Conversione video ${convFatte}/${convTotali}…`;
-  res.json(r);
 });
 
 function applicaMeta(dati, tokens) {

@@ -109,6 +109,7 @@
     <div class="azioni">
       <button class="cloud" onclick="apriDialogRipristino()">☁️ Ripristina</button>
       <button class="cloud" onclick="avviaConversione()">🛠️ Converti video</button>
+	  <button class="cloud" onclick="verificaBackup()">☁️ Verifica backup</button>
       <button class="cloud" onclick="pulisciCacheRender()"
               title="Redeploy con pulizia cache: il servizio sarà offline 2-5 minuti">🔄 Redeploy</button>
       <button class="gray" onclick="logout()">Esci</button>
@@ -366,6 +367,18 @@ async function confermaRipristino() {
     headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tokens }) });
   const d = await r.json();
   if (!r.ok) return alert(d.errore || 'Errore avvio ripristino');
+  $('#ripristino').style.display = 'block';
+  clearInterval(window._tRip);
+  window._tRip = setInterval(statoRipristino, 2000);
+  statoRipristino();
+}
+// --- 🧹 VERIFICA/RICONCILIAZIONE BACKUP MEGA ---
+async function verificaBackup() {
+  if (!confirm('Verificare che ogni foto/video del server sia presente nel backup MEGA?\n\n' +
+      'I media mancanti verranno ri-copiati automaticamente.')) return;
+  const r = await fetch('/admin/verifica-backup', { method: 'POST' });
+  const d = await r.json();
+  if (!r.ok) return alert(d.errore || 'MEGA non disponibile');
   $('#ripristino').style.display = 'block';
   clearInterval(window._tRip);
   window._tRip = setInterval(statoRipristino, 2000);
