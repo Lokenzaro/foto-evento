@@ -1,11 +1,13 @@
 // ============================================================
-//  SERVER - App foto/video evento con QR code — v6.5.4
+//  SERVER - App foto/video evento con QR code — v6.5.5
 //  MEGA: /FOTO-EVENTI/<Evento [TOKEN]>/
 //  - v6.5.1: redeploy con pulizia cache (API Render)
 //  🔒 v6.5.2: rate limiting, cookie protetti, whitelist upload
 //  🧹 v6.5.3: riconciliazione backup (avvio + on-demand)
-//  ❤️ v6.5.4: reazioni (heart/laugh/fire) con toggle per client,
-//     incluse in snapshot/ripristino, cascata su eliminazione
+//  ❤️ v6.5.4: reazioni con toggle, incluse in snapshot/ripristino
+//  🏷️ v6.5.5: nomi dei file su MEGA leggibili:
+//     "nomeinvitato__codiceinterno.ext" — migrazione automatica
+//     dei vecchi nomi con ricopia+cancella (nessun doppio permanente)
 // ============================================================
 
 const express = require('express');
@@ -20,7 +22,7 @@ const os = require('os');
 const { execFile } = require('child_process');
 const QRCode = require('qrcode');
 
-const VERSIONE = '6.5.4';
+const VERSIONE = '6.5.5';
 
 function rilevaIPLocale() {
   const interfacce = os.networkInterfaces();
@@ -89,7 +91,6 @@ try { db.exec("ALTER TABLE eventi ADD COLUMN qualita TEXT DEFAULT 'standard'"); 
 try { db.exec("ALTER TABLE eventi ADD COLUMN sfondo TEXT"); } catch (e) {}
 try { db.exec("ALTER TABLE eventi ADD COLUMN archiviato INTEGER DEFAULT 0"); } catch (e) {}
 try { db.exec("ALTER TABLE foto ADD COLUMN tipo TEXT DEFAULT 'foto'"); } catch (e) {}
-// ❤️ una sola reazione per tipo per telefono (toggle)
 try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_reazione_unica ON reazioni (evento_token, filename, client_id, reazione)"); } catch (e) {}
 
 const REAZIONI_VALIDE = ['heart', 'laugh', 'fire'];
@@ -174,6 +175,22 @@ function aggiornaIndice(cb) {
       megaStorage.refresh(true, () => cb());
     } else cb();
   } catch (e) { cb(); }
+}
+
+// 🏷️ v6.5.5: nome "parlante" dei file su MEGA.
+// Il nome interno (esadecimale) resta invariato su disco e nel DB:
+// cambia solo come il file si presenta su MEGA.
+function sanitizzaPersona(n) {
+  const pulito = String(n || '')
+    .replace(/[\/\\:<>"|?*\n\r\t]/g, ' ')
+    .replace(/[_\s]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .trim()
+    .slice(0, 40);
+  return pulito || 'Invitato';
+}
+function nomeBackupMega(persona, filename) {
+  return `${sanitizzaPersona(persona)}__${filename}`;
 }
 
 function creaCartellaDentro(padre, nome, cb) {
@@ -293,15 +310,17 @@ function garantisciCartellaEvento(ev, cb) {
   });
 }
 
-function backupMega(percorsoFile, nomeFile, ev) {
+// backup su MEGA con nome parlante: "nomeinvitato__codice.ext"
+function backupMega(percorsoFile, nomeFile, ev, persona) {
   if (!megaStorage || !megaPronto || !ev) return;
   try {
+    const nomeMega = nomeBackupMega(persona, nomeFile);
     const buffer = fs.readFileSync(percorsoFile);
     garantisciCartellaEvento(ev, (cartella) => {
       if (!cartella) return;
-      caricaInCartella(cartella, nomeFile, buffer, (err) => {
+      caricaInCartella(cartella, nomeMega, buffer, (err) => {
         if (err) console.error('☁️ Backup MEGA fallito:', err.message);
-        else console.log(`☁️ Copiato: /FOTO-EVENTI/${pulisciNome(ev.nome)} [${ev.token}]/${nomeFile}`);
+        else console.log(`☁️ Copiato: /FOTO-EVENTI/${pulisciNome(ev.nome)} [${ev.token}]/${nomeMega}`);
       });
     });
   } catch (e) { console.error('☁️ Backup MEGA errore:', e.message); }
@@ -312,18 +331,25 @@ function eliminaPiattiMega(prefisso) {
   nodiMega().forEach(f => { if (f.name && f.name.startsWith(prefisso)) cancellaNodoMega(f); });
 }
 
-function eliminaNomeDaCartellaEvento(token, nome) {
+// rimuove dalla cartella MEGA un file in TUTTE le forme di nome:
+// nome interno, vecchio prefisso token_, e nome parlante
+function eliminaNomeDaCartellaEvento(token, filename, persona) {
   if (!megaStorage || !megaPronto) return;
   const cartella = trovaCartellaEvento(token);
-  if (cartella) figliDi(cartella).forEach(f => { if (f.name === nome) cancellaNodoMega(f); });
-  nodiMega().forEach(f => { if (f.name === `${token}_${nome}`) cancellaNodoMega(f); });
+  const nomi = new Set([filename, `${token}_${filename}`, nomeBackupMega(persona, filename)]);
+  if (cartella) figliDi(cartella).forEach(f => { if (nomi.has(f.name)) cancellaNodoMega(f); });
+  nodiMega().forEach(f => {
+    if (f.name === `${token}_${filename}` || f.name === nomeBackupMega(persona, filename)) {
+      cancellaNodoMega(f);
+    }
+  });
 }
 
 function eliminaSfondiMega(token) {
   if (!megaStorage || !megaPronto) return;
   const cartella = trovaCartellaEvento(token);
   if (cartella) figliDi(cartella).forEach(f => {
-    if (f.name && f.name.startsWith('sfondo')) cancellaNodoMega(f);
+    if (f.name && f.name.startsWith('sfondo') && !f.name.includes('__')) cancellaNodoMega(f);
   });
   eliminaPiattiMega('sfondo-' + token);
 }
@@ -347,7 +373,11 @@ let convTotali = 0, convFatte = 0;
 function accodaConversioneVideo(ev, filename) {
   if (!FFMPEG_PATH) {
     const origine = path.join(CARTELLA_FOTO, filename);
-    if (fs.existsSync(origine)) backupMega(origine, filename, ev);
+    if (fs.existsSync(origine)) {
+      const riga = db.prepare('SELECT invitato FROM foto WHERE evento_token = ? AND filename = ?')
+        .get(ev.token, filename);
+      backupMega(origine, filename, ev, riga ? riga.invitato : undefined);
+    }
     return;
   }
   codaVideo.push({ ev, filename });
@@ -389,7 +419,12 @@ function preparaVideo(job, done) {
 
   const origine = path.join(CARTELLA_FOTO, filename);
   if (!fs.existsSync(origine)) return fine(false);
-  if (!FFMPEG_PATH) { backupMega(origine, filename, ev); return fine(false); }
+  if (!FFMPEG_PATH) {
+    const riga0 = db.prepare('SELECT invitato FROM foto WHERE evento_token = ? AND filename = ?')
+      .get(ev.token, filename);
+    backupMega(origine, filename, ev, riga0 ? riga0.invitato : undefined);
+    return fine(false);
+  }
 
   const ext = path.extname(filename).toLowerCase();
 
@@ -405,6 +440,11 @@ function preparaVideo(job, done) {
   };
 
   const converti = () => {
+    // 🏷️ leggiamo l'invitato PRIMA di aggiornare il nome nel DB
+    const riga = db.prepare('SELECT invitato FROM foto WHERE evento_token = ? AND filename = ?')
+      .get(ev.token, filename);
+    const persona = riga ? riga.invitato : undefined;
+
     const base = crypto.randomBytes(12).toString('hex');
     const mp4 = base + '.mp4';
     const tmp = path.join(CARTELLA_FOTO, base + '.tmp.mp4');
@@ -419,7 +459,7 @@ function preparaVideo(job, done) {
         console.error('🎬 Conversione fallita per', filename, err ? err.message : '');
         try { fs.unlinkSync(tmp); } catch (e) {}
         generaPoster(origine, () => {});
-        backupMega(origine, filename, ev);
+        backupMega(origine, filename, ev, persona);
         return fine(false);
       }
       fs.renameSync(tmp, path.join(CARTELLA_FOTO, mp4));
@@ -427,8 +467,9 @@ function preparaVideo(job, done) {
         .run(mp4, ev.token, filename);
       try { fs.unlinkSync(origine); } catch (e) {}
       generaPoster(path.join(CARTELLA_FOTO, mp4), () => {});
-      eliminaNomeDaCartellaEvento(ev.token, filename);
-      backupMega(path.join(CARTELLA_FOTO, mp4), mp4, ev);
+      // via il vecchio file da MEGA (in tutte le forme di nome), poi il nuovo MP4 parlante
+      eliminaNomeDaCartellaEvento(ev.token, filename, persona);
+      backupMega(path.join(CARTELLA_FOTO, mp4), mp4, ev, persona);
       console.log(`🎬 Convertito: ${filename} → ${mp4}`);
       programmaSnapshot();
       fine(true);
@@ -441,7 +482,9 @@ function preparaVideo(job, done) {
         const out = (se || '') + (so || '');
         if (/hevc|hvc1/i.test(out)) return converti();
         generaPoster(origine, () => {
-          backupMega(origine, filename, ev);
+          const riga = db.prepare('SELECT invitato FROM foto WHERE evento_token = ? AND filename = ?')
+            .get(ev.token, filename);
+          backupMega(origine, filename, ev, riga ? riga.invitato : undefined);
           console.log(`🎬 Video MP4 ok (H.264): anteprima pronta per ${filename}`);
           fine(true);
         });
@@ -512,7 +555,11 @@ function eseguiSnapshot() {
 }
 
 // ============================================================
-//  🧹 RICONCILIAZIONE BACKUP
+//  🧹 RICONCILIAZIONE BACKUP (v6.5.3 + 🏷️ migrazione nomi v6.5.5)
+//  Confronta i media del DB con i file MEGA dell'evento.
+//  - manca il file col NOME PARLANTE → ri-copia dal disco
+//    (fonte di verità) ed elimina l'eventuale vecchio nome scuro
+//  - non riconverte nulla: il file locale è già quello finale
 // ============================================================
 const riconciliazione = { in_corso: false, messaggio: 'Mai avviata', controllati: 0, ricopiati: 0, errori: 0 };
 
@@ -549,7 +596,7 @@ function eseguiRiconciliazione(cb) {
     }
 
     const media = db.prepare(`
-      SELECT f.filename, f.evento_token, e.nome
+      SELECT f.filename, f.invitato, f.evento_token, e.nome
       FROM foto f JOIN eventi e ON e.token = f.evento_token
       ORDER BY f.id
     `).all().filter(mediaBackupabile);
@@ -558,13 +605,14 @@ function eseguiRiconciliazione(cb) {
     const mancanti = [];
     for (const m of media) {
       const inCartella = filesMegaPerToken[m.evento_token];
-      const neiPiatti = piatti[m.evento_token];
-      const presente = (inCartella && inCartella.has(m.filename)) ||
-                       (neiPiatti && neiPiatti.has(m.filename));
-      if (!presente) mancanti.push(m);
+      // presente SOLO se esiste col nome parlante; il vecchio nome
+      // scuro va migrato (ricopia + cancella)
+      if (!inCartella || !inCartella.has(nomeBackupMega(m.invitato, m.filename))) {
+        mancanti.push(m);
+      }
     }
     riconciliazione.messaggio =
-      `Riconciliazione: ${mancanti.length} media mancanti su ${media.length}…`;
+      `Riconciliazione: ${mancanti.length} media da allineare su ${media.length}…`;
 
     if (!mancanti.length) {
       riconciliazione.in_corso = false;
@@ -592,9 +640,14 @@ function eseguiRiconciliazione(cb) {
         `Riconciliazione: copio ${i}/${mancanti.length} (media mancanti su MEGA)…`;
       garantisciCartellaEvento(m, (cartella) => {
         if (!cartella) { riconciliazione.errori++; return prossima(); }
-        const ancora = figliDi(cartella).some(f => f.name === m.filename);
-        if (ancora) return prossima();
-        backupMega(path.join(CARTELLA_FOTO, m.filename), m.filename, m);
+        const figli = figliDi(cartella);
+        const nomeNuovo = nomeBackupMega(m.invitato, m.filename);
+        // doppia sicurezza: se nel frattempo è arrivato, salta
+        if (figli.some(f => f.name === nomeNuovo)) return prossima();
+        // 🏷️ migrazione: se esiste il vecchio nome scuro, eliminalo
+        const vecchio = figli.find(f => f.name === m.filename);
+        if (vecchio) cancellaNodoMega(vecchio);
+        backupMega(path.join(CARTELLA_FOTO, m.filename), m.filename, m, m.invitato);
         setTimeout(prossima, 1500);
       });
     };
@@ -614,7 +667,6 @@ const app = express();
 
 app.set('trust proxy', 1);
 
-// 🔒 limiti di frequenza
 const limiterLogin = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 10,
@@ -740,7 +792,7 @@ app.post('/api/eventi/:id/sfondo', soloAdmin, caricamento.single('sfondo'), (req
   if (ev.sfondo) { try { fs.unlinkSync(path.join(CARTELLA_FOTO, ev.sfondo)); } catch (e) {} }
   db.prepare('UPDATE eventi SET sfondo = ? WHERE id = ?').run(req.file.filename, req.params.id);
   eliminaSfondiMega(ev.token);
-  backupMega(req.file.path, 'sfondo' + path.extname(req.file.filename), ev);
+  backupMega(req.file.path, 'sfondo' + path.extname(req.file.filename), ev, null);
   programmaSnapshot();
   res.json({ ok: true, sfondo: req.file.filename });
 });
@@ -789,7 +841,7 @@ app.delete('/api/eventi/:id', soloAdmin, (req, res) => {
     eliminaPiattiMega(ev.token + '_');
     eliminaPiattiMega('sfondo-' + ev.token);
   }
-  db.prepare('DELETE FROM reazioni WHERE evento_token = ?').run(ev.token); // ❤️ cascata
+  db.prepare('DELETE FROM reazioni WHERE evento_token = ?').run(ev.token);
   db.prepare('DELETE FROM foto WHERE evento_token = ?').run(ev.token);
   db.prepare('DELETE FROM eventi WHERE id = ?').run(req.params.id);
   programmaSnapshot();
@@ -822,7 +874,6 @@ function conteggiDi(token, filename) {
   return c;
 }
 
-// toggle: tocco = aggiungi, ritocco = togli (una per tipo per telefono)
 app.post('/api/reazione', (req, res) => {
   const { token, filename, reazione, client_id } = req.body || {};
   if (!token || !/^[A-Za-z0-9_-]{8}$/.test(token)) return res.status(400).json({ errore: 'Token non valido' });
@@ -848,7 +899,6 @@ app.post('/api/reazione', (req, res) => {
   res.json({ ok: true, mie, conteggi: conteggiDi(token, filename) });
 });
 
-// conteggi di tutto l'evento + le reazioni di chi chiede (per l'evidenziazione)
 app.get('/api/reazioni/:token', (req, res) => {
   const token = req.params.token;
   if (!/^[A-Za-z0-9_-]{8}$/.test(token)) return res.status(400).json({ errore: 'Token non valido' });
@@ -898,13 +948,15 @@ app.post('/upload', caricamento.single('media'), (req, res) => {
   const ev = db.prepare('SELECT token, nome FROM eventi WHERE token = ? AND attivo = 1').get(req.body.token);
   if (!ev) return res.status(403).json({ errore: 'Evento non valido o chiuso' });
   const tipo = (req.file.mimetype.startsWith('video/') || E_VIDEO(req.file.filename)) ? 'video' : 'foto';
+  const nomeInvitato = (req.body.nome || 'Invitato').slice(0, 50);
   db.prepare('INSERT INTO foto (evento_token, filename, invitato, tipo) VALUES (?, ?, ?, ?)')
-    .run(ev.token, req.file.filename, (req.body.nome || 'Invitato').slice(0, 50), tipo);
+    .run(ev.token, req.file.filename, nomeInvitato, tipo);
 
   if (tipo === 'video') {
     accodaConversioneVideo(ev, req.file.filename);
   } else {
-    backupMega(req.file.path, req.file.filename, ev);
+    // 🏷️ backup immediato col nome parlante
+    backupMega(req.file.path, req.file.filename, ev, nomeInvitato);
   }
   programmaSnapshot();
   res.json({ ok: true, tipo });
@@ -965,7 +1017,8 @@ app.get('/admin/eventi-mega', soloAdmin, (req, res) => {
           };
         }
         lista[token].num_media = figliDi(c).filter(f => f.name &&
-          !f.name.startsWith('sfondo') && !/^dati-\d+\.json$/.test(f.name) &&
+          !(f.name.startsWith('sfondo') && !f.name.includes('__')) &&
+          !/^dati-\d+\.json$/.test(f.name) &&
           !EST_VIDEO_IMG.test(f.name)).length;
       }
       for (const f of nodiMega()) {
@@ -986,7 +1039,7 @@ app.get('/admin/eventi-mega', soloAdmin, (req, res) => {
   });
 });
 
-// ---------- RIPRISTINO SELETTIVO (include le reazioni) ----------
+// ---------- RIPRISTINO SELETTIVO ----------
 app.post('/admin/ripristino', soloAdmin, (req, res) => {
   if (!megaStorage || !megaPronto) {
     return res.status(400).json({ errore: 'MEGA non configurato: servono MEGA_EMAIL e MEGA_PASSWORD' });
@@ -1148,10 +1201,15 @@ function scaricaSelezionati(tokens, done) {
     if (cartella) {
       for (const f of figliDi(cartella)) {
         if (!f.name) continue;
-        if (f.name.startsWith('sfondo')) continue;
-        if (/^dati-\d+\.json$/.test(f.name)) continue;
-        if (EST_VIDEO_IMG.test(f.name)) continue;
-        tasks.push({ f, token, filename: f.name });
+        // 🏷️ il nome su MEGA può essere "nomeinvitato__file.ext":
+        // estraiamo il nome interno del file (parte dopo il primo "__")
+        let nomeInterno = f.name;
+        const idx = f.name.indexOf('__');
+        if (idx > 0) nomeInterno = f.name.slice(idx + 2);
+        if (nomeInterno.startsWith('sfondo')) continue;
+        if (/^dati-\d+\.json$/.test(nomeInterno)) continue;
+        if (EST_VIDEO_IMG.test(nomeInterno)) continue;
+        tasks.push({ f, token, filename: nomeInterno });
       }
     }
     for (const f of nodiMega()) {
@@ -1166,7 +1224,8 @@ function scaricaSelezionati(tokens, done) {
     if (!ev || !ev.sfondo) continue;
     if (fs.existsSync(path.join(CARTELLA_FOTO, ev.sfondo))) continue;
     const cartella = trovaCartellaEvento(token);
-    let sf = cartella ? figliDi(cartella).find(f => f.name && f.name.startsWith('sfondo')) : null;
+    let sf = cartella ? figliDi(cartella).find(f => f.name &&
+      f.name.startsWith('sfondo') && !f.name.includes('__')) : null;
     if (!sf) sf = nodiMega().find(f => f.name &&
       new RegExp(`^sfondo-${token}\\.`, 'i').test(f.name));
     if (sf) tasks.push({ f: sf, token, filename: ev.sfondo, soloFile: true });
