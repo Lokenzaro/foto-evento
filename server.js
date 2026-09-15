@@ -1,5 +1,5 @@
 // ============================================================
-//  SERVER - App foto/video evento con QR code — v6.5.5
+//  SERVER - App foto/video evento con QR code — v6.5.6
 //  MEGA: /FOTO-EVENTI/<Evento [TOKEN]>/
 //  - v6.5.1: redeploy con pulizia cache (API Render)
 //  🔒 v6.5.2: rate limiting, cookie protetti, whitelist upload
@@ -8,6 +8,18 @@
 //  🏷️ v6.5.5: nomi dei file su MEGA leggibili:
 //     "nomeinvitato__codiceinterno.ext" — migrazione automatica
 //     dei vecchi nomi con ricopia+cancella (nessun doppio permanente)
+//  🐛 v6.5.6: bugfix
+//     - sfondo MEGA: nome dedicato "sfondo.ext" (non più "Invitato__sfondo.ext")
+//     - riconciliazione: query con alias token corretto
+//       (evita cartelle fantasma [undefined] su MEGA)
+//     - ripristino flat: preserva l'estensione del file
+//     - riconciliazione: rimuove anche i vecchi nomi flat
+//     - error handler spostato in fondo (cattura tutte le route)
+//     - controllo req.file su /upload e /api/eventi/:id/sfondo
+//     - conteggio media su MEGA esclude correttamente lo sfondo
+//     - progress conversione video: solo job del batch corrente
+//     - /qr/:token protetto da try/catch
+//     - applicaMeta: default corretti per creato_il / caricata_il
 // ============================================================
 
 const express = require('express');
@@ -22,7 +34,7 @@ const os = require('os');
 const { execFile } = require('child_process');
 const QRCode = require('qrcode');
 
-const VERSIONE = '6.5.5';
+const VERSIONE = '6.5.6';
 
 function rilevaIPLocale() {
   const interfacce = os.networkInterfaces();
@@ -177,7 +189,7 @@ function aggiornaIndice(cb) {
   } catch (e) { cb(); }
 }
 
-// 🏷️ v6.5.5: nome "parlante" dei file su MEGA.
+// 🏷️ nome "parlante" dei file su MEGA.
 // Il nome interno (esadecimale) resta invariato su disco e nel DB:
 // cambia solo come il file si presenta su MEGA.
 function sanitizzaPersona(n) {
@@ -191,6 +203,15 @@ function sanitizzaPersona(n) {
 }
 function nomeBackupMega(persona, filename) {
   return `${sanitizzaPersona(persona)}__${filename}`;
+}
+
+// 🐛 v6.5.6: estrae il "nome interno" da un nome MEGA
+// (gestisce sia "persona__file.ext" sia "file.ext" e legacy flat)
+function nomeInternoMega(nome) {
+  if (!nome) return nome;
+  const idx = nome.indexOf('__');
+  if (idx > 0) return nome.slice(idx + 2);
+  return nome;
 }
 
 function creaCartellaDentro(padre, nome, cb) {
@@ -326,6 +347,22 @@ function backupMega(percorsoFile, nomeFile, ev, persona) {
   } catch (e) { console.error('☁️ Backup MEGA errore:', e.message); }
 }
 
+// 🐛 v6.5.6: backup dedicato dello sfondo, con nome semplice "sfondo.ext"
+function backupSfondoMega(percorsoFile, ext, ev) {
+  if (!megaStorage || !megaPronto || !ev) return;
+  try {
+    const nomeMega = 'sfondo' + (ext || '.jpg');
+    const buffer = fs.readFileSync(percorsoFile);
+    garantisciCartellaEvento(ev, (cartella) => {
+      if (!cartella) return;
+      caricaInCartella(cartella, nomeMega, buffer, (err) => {
+        if (err) console.error('☁️ Backup sfondo MEGA fallito:', err.message);
+        else console.log(`☁️ Sfondo copiato: /FOTO-EVENTI/${pulisciNome(ev.nome)} [${ev.token}]/${nomeMega}`);
+      });
+    });
+  } catch (e) { console.error('☁️ Backup sfondo errore:', e.message); }
+}
+
 function eliminaPiattiMega(prefisso) {
   if (!megaStorage || !megaPronto) return;
   nodiMega().forEach(f => { if (f.name && f.name.startsWith(prefisso)) cancellaNodoMega(f); });
@@ -345,13 +382,21 @@ function eliminaNomeDaCartellaEvento(token, filename, persona) {
   });
 }
 
+// 🐛 v6.5.6: elimina lo sfondo da MEGA gestendo anche vecchi nomi
+// legacy ("Invitato__sfondo.ext") e flat ("sfondo-token.ext")
 function eliminaSfondiMega(token) {
   if (!megaStorage || !megaPronto) return;
   const cartella = trovaCartellaEvento(token);
   if (cartella) figliDi(cartella).forEach(f => {
-    if (f.name && f.name.startsWith('sfondo') && !f.name.includes('__')) cancellaNodoMega(f);
+    if (!f.name) return;
+    const n = nomeInternoMega(f.name);
+    if (n && n.startsWith('sfondo')) cancellaNodoMega(f);
   });
   eliminaPiattiMega('sfondo-' + token);
+  // legacy flat: "<token>_sfondo.ext" (doppia sicurezza)
+  nodiMega().forEach(f => {
+    if (f.name && new RegExp(`^${token}_sfondo\\.`, 'i').test(f.name)) cancellaNodoMega(f);
+  });
 }
 
 function eliminaCartellaEvento(token) {
@@ -370,7 +415,10 @@ const codaVideo = [];
 let conversioneAttiva = false;
 let convTotali = 0, convFatte = 0;
 
-function accodaConversioneVideo(ev, filename) {
+// 🐛 v6.5.6: il flag `batch` identifica i job che fanno parte di
+// una conversione di massa (progress ripristino). Le conversioni
+// avviate da un normale upload NON incrementano convFatte.
+function accodaConversioneVideo(ev, filename, batch = false) {
   if (!FFMPEG_PATH) {
     const origine = path.join(CARTELLA_FOTO, filename);
     if (fs.existsSync(origine)) {
@@ -380,7 +428,7 @@ function accodaConversioneVideo(ev, filename) {
     }
     return;
   }
-  codaVideo.push({ ev, filename });
+  codaVideo.push({ ev, filename, batch });
   avviaConversioni();
 }
 
@@ -404,7 +452,8 @@ function eseguiFfmpeg(args, timeoutMs, cb) {
 function preparaVideo(job, done) {
   const ev = job.ev, filename = job.filename;
   const fine = (ok) => {
-    if (convTotali > 0) {
+    // 🐛 v6.5.6: solo i job del batch corrente aggiornano il progress
+    if (job.batch && convTotali > 0) {
       convFatte++;
       if (ripristino.in_corso) ripristino.messaggio = `🎬 Conversione video ${convFatte}/${convTotali}…`;
       if (convFatte >= convTotali) {
@@ -555,10 +604,11 @@ function eseguiSnapshot() {
 }
 
 // ============================================================
-//  🧹 RICONCILIAZIONE BACKUP (v6.5.3 + 🏷️ migrazione nomi v6.5.5)
+//  🧹 RICONCILIAZIONE BACKUP (v6.5.3 + 🏷️ migrazione nomi v6.5.5
+//     + 🐛 alias token + pulizia flat v6.5.6)
 //  Confronta i media del DB con i file MEGA dell'evento.
 //  - manca il file col NOME PARLANTE → ri-copia dal disco
-//    (fonte di verità) ed elimina l'eventuale vecchio nome scuro
+//    (fonte di verità) ed elimina i vecchi nomi (scuri o flat)
 //  - non riconverte nulla: il file locale è già quello finale
 // ============================================================
 const riconciliazione = { in_corso: false, messaggio: 'Mai avviata', controllati: 0, ricopiati: 0, errori: 0 };
@@ -586,17 +636,11 @@ function eseguiRiconciliazione(cb) {
       if (!m) continue;
       filesMegaPerToken[m[1]] = new Set(figliDi(c).map(f => f.name).filter(Boolean));
     }
-    const piatti = {};
-    for (const f of nodiMega()) {
-      const m = f.name && f.name.match(/^([A-Za-z0-9_-]{8})_(.+)$/);
-      if (m) {
-        if (!piatti[m[1]]) piatti[m[1]] = new Set();
-        piatti[m[1]].add(m[2]);
-      }
-    }
 
+    // 🐛 v6.5.6: alias "AS token" per far combaciare il campo atteso
+    // da garantisciCartellaEvento() / backupMega() con l'oggetto riga.
     const media = db.prepare(`
-      SELECT f.filename, f.invitato, f.evento_token, e.nome
+      SELECT f.filename, f.invitato, f.evento_token AS token, e.nome
       FROM foto f JOIN eventi e ON e.token = f.evento_token
       ORDER BY f.id
     `).all().filter(mediaBackupabile);
@@ -604,9 +648,9 @@ function eseguiRiconciliazione(cb) {
     riconciliazione.controllati = media.length;
     const mancanti = [];
     for (const m of media) {
-      const inCartella = filesMegaPerToken[m.evento_token];
+      const inCartella = filesMegaPerToken[m.token];
       // presente SOLO se esiste col nome parlante; il vecchio nome
-      // scuro va migrato (ricopia + cancella)
+      // scuro (o flat) va migrato: ricopia + cancella
       if (!inCartella || !inCartella.has(nomeBackupMega(m.invitato, m.filename))) {
         mancanti.push(m);
       }
@@ -644,10 +688,19 @@ function eseguiRiconciliazione(cb) {
         const nomeNuovo = nomeBackupMega(m.invitato, m.filename);
         // doppia sicurezza: se nel frattempo è arrivato, salta
         if (figli.some(f => f.name === nomeNuovo)) return prossima();
-        // 🏷️ migrazione: se esiste il vecchio nome scuro, eliminalo
-        const vecchio = figli.find(f => f.name === m.filename);
-        if (vecchio) cancellaNodoMega(vecchio);
+
+        // 🏷️ migrazione 1/2: elimina il vecchio nome scuro (solo filename)
+        const vecchioScuro = figli.find(f => f.name === m.filename);
+        if (vecchioScuro) cancellaNodoMega(vecchioScuro);
+
+        // 🐛 v6.5.6 migrazione 2/2: elimina eventuali flat legacy
+        // "<token>_<filename>" ovunque nell'albero MEGA
+        nodiMega().forEach(f => {
+          if (f.name === `${m.token}_${m.filename}`) cancellaNodoMega(f);
+        });
+
         backupMega(path.join(CARTELLA_FOTO, m.filename), m.filename, m, m.invitato);
+        riconciliazione.ricopiati++;
         setTimeout(prossima, 1500);
       });
     };
@@ -782,9 +835,14 @@ app.post('/api/eventi/:id/qualita', soloAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
+// 🐛 v6.5.6: controllo req.file + uso di backupSfondoMega dedicato
 app.post('/api/eventi/:id/sfondo', soloAdmin, caricamento.single('sfondo'), (req, res) => {
   const ev = db.prepare('SELECT token, nome, sfondo FROM eventi WHERE id = ?').get(req.params.id);
-  if (!ev) return res.status(404).json({ errore: 'Evento non trovato' });
+  if (!ev) {
+    if (req.file) { try { fs.unlinkSync(req.file.path); } catch (e) {} }
+    return res.status(404).json({ errore: 'Evento non trovato' });
+  }
+  if (!req.file) return res.status(400).json({ errore: 'Nessun file caricato' });
   if (!req.file.mimetype.startsWith('image/')) {
     try { fs.unlinkSync(req.file.path); } catch (e) {}
     return res.status(400).json({ errore: 'Il file deve essere un\'immagine' });
@@ -792,7 +850,8 @@ app.post('/api/eventi/:id/sfondo', soloAdmin, caricamento.single('sfondo'), (req
   if (ev.sfondo) { try { fs.unlinkSync(path.join(CARTELLA_FOTO, ev.sfondo)); } catch (e) {} }
   db.prepare('UPDATE eventi SET sfondo = ? WHERE id = ?').run(req.file.filename, req.params.id);
   eliminaSfondiMega(ev.token);
-  backupMega(req.file.path, 'sfondo' + path.extname(req.file.filename), ev, null);
+  // 🐛 v6.5.6: nome semplice "sfondo.ext" — non più "Invitato__sfondo.ext"
+  backupSfondoMega(req.file.path, path.extname(req.file.filename), ev);
   programmaSnapshot();
   res.json({ ok: true, sfondo: req.file.filename });
 });
@@ -925,11 +984,17 @@ app.get('/api/reazioni/:token', (req, res) => {
 
 app.use('/foto', express.static(CARTELLA_FOTO));
 
+// 🐛 v6.5.6: try/catch per evitare unhandled rejection
 app.get('/qr/:token', soloAdmin, async (req, res) => {
-  const ev = db.prepare('SELECT token FROM eventi WHERE token = ?').get(req.params.token);
-  if (!ev) return res.status(404).send('Non trovato');
-  const png = await QRCode.toBuffer(`${URL_BASE}/e/${ev.token}`, { width: 600, margin: 2 });
-  res.type('image/png').send(png);
+  try {
+    const ev = db.prepare('SELECT token FROM eventi WHERE token = ?').get(req.params.token);
+    if (!ev) return res.status(404).send('Non trovato');
+    const png = await QRCode.toBuffer(`${URL_BASE}/e/${ev.token}`, { width: 600, margin: 2 });
+    res.type('image/png').send(png);
+  } catch (e) {
+    console.error('⚠️ Errore generazione QR:', e.message);
+    res.status(500).send('Errore generazione QR');
+  }
 });
 
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
@@ -944,9 +1009,14 @@ app.get('/galleria/:token', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'galleria.html'));
 });
 
+// 🐛 v6.5.6: controllo req.file
 app.post('/upload', caricamento.single('media'), (req, res) => {
+  if (!req.file) return res.status(400).json({ errore: 'Nessun file caricato' });
   const ev = db.prepare('SELECT token, nome FROM eventi WHERE token = ? AND attivo = 1').get(req.body.token);
-  if (!ev) return res.status(403).json({ errore: 'Evento non valido o chiuso' });
+  if (!ev) {
+    try { fs.unlinkSync(req.file.path); } catch (e) {}
+    return res.status(403).json({ errore: 'Evento non valido o chiuso' });
+  }
   const tipo = (req.file.mimetype.startsWith('video/') || E_VIDEO(req.file.filename)) ? 'video' : 'foto';
   const nomeInvitato = (req.body.nome || 'Invitato').slice(0, 50);
   db.prepare('INSERT INTO foto (evento_token, filename, invitato, tipo) VALUES (?, ?, ?, ?)')
@@ -960,14 +1030,6 @@ app.post('/upload', caricamento.single('media'), (req, res) => {
   }
   programmaSnapshot();
   res.json({ ok: true, tipo });
-});
-
-app.use((err, req, res, next) => {
-  if (err) {
-    console.error('⚠️ Richiesta rifiutata:', err.message);
-    return res.status(400).json({ errore: err.message || 'Richiesta non valida' });
-  }
-  next();
 });
 
 // ---------- ELENCO BACKUP ----------
@@ -1016,10 +1078,16 @@ app.get('/admin/eventi-mega', soloAdmin, (req, res) => {
             num_media: 0
           };
         }
-        lista[token].num_media = figliDi(c).filter(f => f.name &&
-          !(f.name.startsWith('sfondo') && !f.name.includes('__')) &&
-          !/^dati-\d+\.json$/.test(f.name) &&
-          !EST_VIDEO_IMG.test(f.name)).length;
+        // 🐛 v6.5.6: escludi lo sfondo usando il nome interno
+        // (gestisce sia "sfondo.ext" sia il legacy "X__sfondo.ext")
+        lista[token].num_media = figliDi(c).filter(f => {
+          if (!f.name) return false;
+          if (/^dati-\d+\.json$/.test(f.name)) return false;
+          if (EST_VIDEO_IMG.test(f.name)) return false;
+          const interno = nomeInternoMega(f.name);
+          if (interno && interno.startsWith('sfondo')) return false;
+          return true;
+        }).length;
       }
       for (const f of nodiMega()) {
         const m = f.name && f.name.match(new RegExp(`^([A-Za-z0-9_-]{8})_.+\\.(${EST_MEDIA.join('|')})$`, 'i'));
@@ -1084,7 +1152,8 @@ app.post('/admin/converti-video', soloAdmin, (req, res) => {
   ripristino.eventi = 0; ripristino.media = 0; ripristino.reazioni = 0; ripristino.errori = 0; ripristino.totale = candidati.length;
   convTotali = candidati.length; convFatte = 0;
   ripristino.messaggio = `🎬 Conversione video 0/${candidati.length}…`;
-  for (const c of candidati) accodaConversioneVideo({ token: c.evento_token, nome: c.nome }, c.filename);
+  // 🐛 v6.5.6: batch=true → solo questi job incrementano convFatte
+  for (const c of candidati) accodaConversioneVideo({ token: c.evento_token, nome: c.nome }, c.filename, true);
   res.json({ ok: true });
 });
 
@@ -1096,6 +1165,8 @@ app.get('/admin/stato-ripristino', soloAdmin, (req, res) => {
 });
 
 function applicaMeta(dati, tokens) {
+  // 🐛 v6.5.6: default espliciti per creato_il / caricata_il
+  const adesso = new Date().toISOString().slice(0, 19).replace('T', ' ');
   const insEvento = db.prepare(`INSERT INTO eventi
     (token, nome, data_evento, qualita, attivo, creato_il, sfondo, archiviato) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
   const insMedia = db.prepare(`INSERT INTO foto
@@ -1107,7 +1178,9 @@ function applicaMeta(dati, tokens) {
       if (!tokens.includes(ev.token)) continue;
       if (db.prepare('SELECT id FROM eventi WHERE token = ?').get(ev.token)) continue;
       insEvento.run(ev.token, ev.nome, ev.data_evento || null, ev.qualita || 'standard',
-        ev.attivo === undefined ? 1 : ev.attivo, ev.creato_il || null, ev.sfondo || null,
+        ev.attivo === undefined ? 1 : ev.attivo,
+        ev.creato_il || adesso,
+        ev.sfondo || null,
         ev.archiviato ? 1 : 0);
       ripristino.eventi++;
     }
@@ -1116,14 +1189,14 @@ function applicaMeta(dati, tokens) {
       if (db.prepare('SELECT id FROM foto WHERE evento_token = ? AND filename = ?')
             .get(m.evento_token, m.filename)) continue;
       insMedia.run(m.evento_token, m.filename, m.invitato || 'Invitato',
-        m.caricata_il || null, m.tipo || 'foto');
+        m.caricata_il || adesso, m.tipo || 'foto');
       ripristino.media++;
     }
     for (const rz of (dati.reazioni || [])) {
       if (!tokens.includes(rz.evento_token)) continue;
       if (!REAZIONI_VALIDE.includes(rz.reazione)) continue;
       const info = insReazione.run(rz.evento_token, rz.filename,
-        String(rz.client_id || 'sconosciuto').slice(0, 64), rz.reazione, rz.creato_il || null);
+        String(rz.client_id || 'sconosciuto').slice(0, 64), rz.reazione, rz.creato_il || adesso);
       if (info.changes) ripristino.reazioni++;
     }
   })();
@@ -1203,19 +1276,19 @@ function scaricaSelezionati(tokens, done) {
         if (!f.name) continue;
         // 🏷️ il nome su MEGA può essere "nomeinvitato__file.ext":
         // estraiamo il nome interno del file (parte dopo il primo "__")
-        let nomeInterno = f.name;
-        const idx = f.name.indexOf('__');
-        if (idx > 0) nomeInterno = f.name.slice(idx + 2);
-        if (nomeInterno.startsWith('sfondo')) continue;
-        if (/^dati-\d+\.json$/.test(nomeInterno)) continue;
-        if (EST_VIDEO_IMG.test(nomeInterno)) continue;
-        tasks.push({ f, token, filename: nomeInterno });
+        const interno = nomeInternoMega(f.name);
+        if (!interno) continue;
+        if (interno.startsWith('sfondo')) continue;
+        if (/^dati-\d+\.json$/.test(interno)) continue;
+        if (EST_VIDEO_IMG.test(interno)) continue;
+        tasks.push({ f, token, filename: interno });
       }
     }
     for (const f of nodiMega()) {
       if (!f.name) continue;
       const m = f.name.match(new RegExp(`^${token}_(.+)\\.(${EST_MEDIA.join('|')})$`, 'i'));
-      if (m) tasks.push({ f, token, filename: m[1] });
+      // 🐛 v6.5.6: ricostruisci nome COMPLETO di estensione
+      if (m) tasks.push({ f, token, filename: m[1] + '.' + m[2] });
     }
   }
 
@@ -1224,8 +1297,12 @@ function scaricaSelezionati(tokens, done) {
     if (!ev || !ev.sfondo) continue;
     if (fs.existsSync(path.join(CARTELLA_FOTO, ev.sfondo))) continue;
     const cartella = trovaCartellaEvento(token);
-    let sf = cartella ? figliDi(cartella).find(f => f.name &&
-      f.name.startsWith('sfondo') && !f.name.includes('__')) : null;
+    // 🐛 v6.5.6: individua lo sfondo anche se è legacy "X__sfondo.ext"
+    let sf = cartella ? figliDi(cartella).find(f => {
+      if (!f.name) return false;
+      const n = nomeInternoMega(f.name);
+      return n && n.startsWith('sfondo');
+    }) : null;
     if (!sf) sf = nodiMega().find(f => f.name &&
       new RegExp(`^sfondo-${token}\\.`, 'i').test(f.name));
     if (sf) tasks.push({ f: sf, token, filename: ev.sfondo, soloFile: true });
@@ -1304,6 +1381,16 @@ function elaboraVideoEsistenti() {
 }
 
 app.use(express.static('public'));
+
+// 🐛 v6.5.6: error handler in fondo (cattura tutti gli errori delle route)
+app.use((err, req, res, next) => {
+  if (err) {
+    console.error('⚠️ Richiesta rifiutata:', err.message);
+    if (res.headersSent) return next(err);
+    return res.status(400).json({ errore: err.message || 'Richiesta non valida' });
+  }
+  next();
+});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
